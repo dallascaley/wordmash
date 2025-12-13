@@ -1,9 +1,17 @@
 {% extends "layout.html" %}
 {% block content %}
-<h2>WordPress File Comparison Tool</h2>
-<p>Compare files between broken and clean WordPress installations.</p>
-<form action="/compare" method="get">
-    <label>File path: <input type="text" name="path" placeholder="wp-config.php"></label>
-    <button type="submit">Compare</button>
-</form>
+<h2>WordPress Security Analysis Tool</h2>
+
+<p>WordMash allows you to compare two different WordPress sites - a broken (infected) one and a clean one - and then create an AI classifier to determine which files and data elements are malicious (viruses, malware, etc.) and which ones were intentional modifications.</p>
+
+<h3>Features</h3>
+<ul>
+    <li><strong>Projects</strong> - Configure and manage comparison projects, each with a clean and dirty WordPress installation</li>
+    <li><strong>Inventory</strong> - View file counts, lines of code, database tables and rows for each project</li>
+    <li><strong>Statistics</strong> - Track project progress and AI classifier accuracy</li>
+    <li><strong>Admin</strong> - System administration and settings</li>
+</ul>
+
+<h3>Get Started</h3>
+<p>Head to <a href="/projects">Projects</a> to create a new comparison project or view existing ones.</p>
 {% endblock %}

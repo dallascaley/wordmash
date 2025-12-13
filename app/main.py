@@ -39,8 +39,8 @@ def compare(request: Request, path: str):
     )
 
 
-@app.get("/admin")
-def admin(request: Request):
+@app.get("/projects")
+def projects(request: Request):
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM projects ORDER BY created_at DESC")
@@ -48,12 +48,12 @@ def admin(request: Request):
     cursor.close()
     conn.close()
     return templates.TemplateResponse(
-        "admin.html",
+        "projects.html",
         {"request": request, "projects": projects}
     )
 
 
-@app.post("/admin/projects")
+@app.post("/projects")
 def create_project(request: Request, name: str = Form(...), clean_root: str = Form(...), dirty_root: str = Form(...)):
     conn = get_conn()
     cursor = conn.cursor()
@@ -64,7 +64,31 @@ def create_project(request: Request, name: str = Form(...), clean_root: str = Fo
     conn.commit()
     cursor.close()
     conn.close()
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url="/projects", status_code=303)
+
+
+@app.get("/inventory")
+def inventory(request: Request):
+    return templates.TemplateResponse(
+        "inventory.html",
+        {"request": request}
+    )
+
+
+@app.get("/statistics")
+def statistics(request: Request):
+    return templates.TemplateResponse(
+        "statistics.html",
+        {"request": request}
+    )
+
+
+@app.get("/admin")
+def admin(request: Request):
+    return templates.TemplateResponse(
+        "admin.html",
+        {"request": request}
+    )
 
 
 @app.get("/project/{project_id}")

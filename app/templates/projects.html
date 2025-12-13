@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Projects</h2>
+
+<h3>Add New Project</h3>
+<form action="/projects" method="post">
+    <div>
+        <label>Name: <input type="text" name="name" required></label>
+    </div>
+    <div>
+        <label>Clean Root: <input type="text" name="clean_root" required placeholder="/path/to/clean"></label>
+    </div>
+    <div>
+        <label>Dirty Root: <input type="text" name="dirty_root" required placeholder="/path/to/dirty"></label>
+    </div>
+    <button type="submit">Create Project</button>
+</form>
+
+<h3>Existing Projects</h3>
+{% if projects %}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Clean Root</th>
+            <th>Dirty Root</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for project in projects %}
+        <tr>
+            <td>{{ project.id }}</td>
+            <td>{{ project.name }}</td>
+            <td>{{ project.clean_root }}</td>
+            <td>{{ project.dirty_root }}</td>
+            <td>{{ project.created_at }}</td>
+            <td><a href="/project/{{ project.id }}">View</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No projects yet.</p>
+{% endif %}
+{% endblock %}
