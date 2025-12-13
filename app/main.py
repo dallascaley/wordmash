@@ -1,0 +1,37 @@
+from fastapi import FastAPI, Request, Form
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+import os
+
+app = FastAPI()
+templates = Jinja2Templates(directory="app/templates")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+BROKEN_ROOT = "/home/hakr49/dallascaley.info/dallascaley-old"
+CLEAN_ROOT = "/home/hakr49/dallascaley.info/wordpress"
+
+@app.get("/")
+def home(request: Request):
+    return templates.TemplateResponse(
+        "home.html",
+        {"request": request}
+    )
+
+
+@app.get("/compare")
+def compare(request: Request, path: str):
+    broken_file = os.path.join(BROKEN_ROOT, path)
+    clean_file = os.path.join(CLEAN_ROOT, path)
+
+    broken_content = open(broken_file).read() if os.path.exists(broken_file) else ""
+    clean_content = open(clean_file).read() if os.path.exists(clean_file) else ""
+
+    return templates.TemplateResponse(
+        "compare.html",
+        {
+            "request": request,
+            "path": path,
+            "broken_content": broken_content,
+            "clean_content": clean_content
+        }
+    )

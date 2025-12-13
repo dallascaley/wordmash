@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h2>Comparing: {{ path }}</h2>
+
+<div class="container">
+    <div class="column">
+        <h3>Broken Site</h3>
+        <pre>{{ broken_content }}</pre>
+    </div>
+
+    <div class="column">
+        <h3>Clean Site</h3>
+        <pre>{{ clean_content }}</pre>
+    </div>
+</div>
+
+<form method="post" action="/classify">
+    <input type="hidden" name="path" value="{{ path }}">
+    <button name="label" value="good">Good</button>
+    <button name="label" value="broken">Broken</button>
+</form>
+
+{% endblock %}

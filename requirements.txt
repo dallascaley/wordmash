@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+jinja2
+pymysql
+python-multipart
+scikit-learn

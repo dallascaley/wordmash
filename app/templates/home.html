@@ -1,0 +1,9 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>WordPress File Comparison Tool</h2>
+<p>Compare files between broken and clean WordPress installations.</p>
+<form action="/compare" method="get">
+    <label>File path: <input type="text" name="path" placeholder="wp-config.php"></label>
+    <button type="submit">Compare</button>
+</form>
+{% endblock %}
