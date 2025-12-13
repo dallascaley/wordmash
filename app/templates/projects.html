@@ -8,6 +8,12 @@
         <label>Name: <input type="text" name="name" required></label>
     </div>
     <div>
+        <label>Description: <input type="text" name="description" placeholder="Project description"></label>
+    </div>
+    <div>
+        <label>URL: <input type="text" name="url" placeholder="https://example.com"></label>
+    </div>
+    <div>
         <label>Clean Root: <input type="text" name="clean_root" required placeholder="/path/to/clean"></label>
     </div>
     <div>
@@ -21,10 +27,9 @@
 <table>
     <thead>
         <tr>
-            <th>ID</th>
             <th>Name</th>
-            <th>Clean Root</th>
-            <th>Dirty Root</th>
+            <th>Description</th>
+            <th>URL</th>
             <th>Created</th>
             <th>Actions</th>
         </tr>
@@ -32,10 +37,9 @@
     <tbody>
         {% for project in projects %}
         <tr>
-            <td>{{ project.id }}</td>
             <td>{{ project.name }}</td>
-            <td>{{ project.clean_root }}</td>
-            <td>{{ project.dirty_root }}</td>
+            <td>{{ project.description or '' }}</td>
+            <td>{% if project.url %}<a href="{{ project.url }}" target="_blank">{{ project.url }}</a>{% endif %}</td>
             <td>{{ project.created_at }}</td>
             <td><a href="/project/{{ project.id }}">View</a></td>
         </tr>

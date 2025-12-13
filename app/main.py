@@ -54,12 +54,19 @@ def projects(request: Request):
 
 
 @app.post("/projects")
-def create_project(request: Request, name: str = Form(...), clean_root: str = Form(...), dirty_root: str = Form(...)):
+def create_project(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+    url: str = Form(""),
+    clean_root: str = Form(...),
+    dirty_root: str = Form(...)
+):
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO projects (name, clean_root, dirty_root) VALUES (%s, %s, %s)",
-        (name, clean_root, dirty_root)
+        "INSERT INTO projects (name, description, url, clean_root, dirty_root) VALUES (%s, %s, %s, %s, %s)",
+        (name, description, url, clean_root, dirty_root)
     )
     conn.commit()
     cursor.close()
