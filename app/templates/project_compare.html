@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>{{ project.name }} - Comparing: {{ path }}</h2>
+
+<div class="container">
+    <div class="column">
+        <h3>Dirty</h3>
+        <pre>{{ dirty_content }}</pre>
+    </div>
+
+    <div class="column">
+        <h3>Clean</h3>
+        <pre>{{ clean_content }}</pre>
+    </div>
+</div>
+
+<p><a href="/project/{{ project.id }}">Back to Project</a></p>
+{% endblock %}
