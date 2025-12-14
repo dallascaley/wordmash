@@ -1,6 +1,62 @@
 {% extends "layout.html" %}
 {% block content %}
 <h2>Inventory</h2>
-<p>View file counts, lines of code, database tables and rows for each project.</p>
-<p><em>Coming soon.</em></p>
+
+<form action="/inventory" method="get" class="project-selector">
+    <label>Select Project:
+        <select name="project_id" onchange="this.form.submit()">
+            <option value="">-- Choose a project --</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}" {% if project and project.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+</form>
+
+{% if project %}
+<h3>{{ project.name }}</h3>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <h4>Files</h4>
+        <div class="stat-number">{{ stats.files.total_files or 0 }}</div>
+        <div class="stat-label">Total Files</div>
+        <div class="stat-progress">
+            <span class="processed">{{ stats.files.processed_files or 0 }}</span> / {{ stats.files.total_files or 0 }} processed
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <h4>Lines of Code</h4>
+        <div class="stat-number">{{ stats.file_rows.total_rows or 0 }}</div>
+        <div class="stat-label">Total Lines</div>
+        <div class="stat-progress">
+            <span class="processed">{{ stats.file_rows.processed_rows or 0 }}</span> / {{ stats.file_rows.total_rows or 0 }} processed
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <h4>Database Tables</h4>
+        <div class="stat-number">{{ stats.db_tables.total_tables or 0 }}</div>
+        <div class="stat-label">Total Tables</div>
+        <div class="stat-progress">
+            <span class="processed">{{ stats.db_tables.processed_tables or 0 }}</span> / {{ stats.db_tables.total_tables or 0 }} processed
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <h4>Database Rows</h4>
+        <div class="stat-number">{{ stats.db_table_rows.total_rows or 0 }}</div>
+        <div class="stat-label">Total Rows</div>
+        <div class="stat-progress">
+            <span class="processed">{{ stats.db_table_rows.processed_rows or 0 }}</span> / {{ stats.db_table_rows.total_rows or 0 }} processed
+        </div>
+    </div>
+</div>
+
+{% elif projects %}
+<p>Select a project to view its inventory.</p>
+{% else %}
+<p>No projects yet. <a href="/projects">Create one</a> to get started.</p>
+{% endif %}
 {% endblock %}
