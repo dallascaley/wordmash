@@ -19,13 +19,16 @@
 <div class="stats-grid">
     <div class="stat-card">
         <h4>Files</h4>
-        <div class="stat-number">{{ stats.files.total_files or 0 }}</div>
+        <div class="stat-number" id="file-count">{{ stats.files.total_files or 0 }}</div>
         <div class="stat-label">Total Files</div>
         <div class="stat-progress">
             <span class="processed">{{ stats.files.processed_files or 0 }}</span> / {{ stats.files.total_files or 0 }} processed
         </div>
-        <form action="/project/{{ project.id }}/scan/files" method="post" class="scan-form">
-            <button type="submit" class="scan-btn">Scan Files</button>
+        <div id="scan-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="scan-count">0</span> files found...
+        </div>
+        <form id="scan-files-form" action="/project/{{ project.id }}/scan/files" method="post" class="scan-form">
+            <button type="submit" id="scan-btn" class="scan-btn">Scan Files</button>
         </form>
     </div>
 
@@ -64,5 +67,61 @@
 <p>Select a project to view its inventory.</p>
 {% else %}
 <p>No projects yet. <a href="/projects">Create one</a> to get started.</p>
+{% endif %}
+
+{% if project %}
+<script>
+(function() {
+    var form = document.getElementById('scan-files-form');
+    var btn = document.getElementById('scan-btn');
+    var progress = document.getElementById('scan-progress');
+    var countSpan = document.getElementById('scan-count');
+    var fileCount = document.getElementById('file-count');
+
+    if (!form || !window.WebSocket) return;
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        var projectId = '{{ project.id }}';
+        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/files/ws';
+
+        var ws = new WebSocket(wsUrl);
+
+        ws.onopen = function() {
+            btn.disabled = true;
+            btn.textContent = 'Scanning...';
+            progress.style.display = 'block';
+            countSpan.textContent = '0';
+        };
+
+        ws.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+
+            if (data.type === 'progress') {
+                countSpan.textContent = data.count;
+                fileCount.textContent = data.count;
+            } else if (data.type === 'done') {
+                countSpan.textContent = data.total;
+                fileCount.textContent = data.total;
+                btn.textContent = 'Done!';
+                setTimeout(function() {
+                    window.location.reload();
+                }, 1000);
+            } else if (data.type === 'error') {
+                alert('Error: ' + data.message);
+                btn.disabled = false;
+                btn.textContent = 'Scan Files';
+                progress.style.display = 'none';
+            }
+        };
+
+        ws.onerror = function() {
+            form.submit();
+        };
+    });
+})();
+</script>
 {% endif %}
 {% endblock %}

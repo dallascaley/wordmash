@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Form
+from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from app.db import get_conn
@@ -89,6 +89,48 @@ def project_compare(request: Request, project_id: int, path: str):
     )
 
 
+def scan_files_generator(project_id: int, dirty_root: str):
+    """
+    Generator that yields file count updates during scanning.
+    Yields progress dicts every 50 files, then a complete dict with all files.
+    """
+    files_to_insert = []
+    count = 0
+
+    for root, dirs, files in os.walk(dirty_root):
+        for file_name in files:
+            full_path = os.path.join(root, file_name)
+
+            relative_dir = os.path.relpath(root, dirty_root)
+            if relative_dir == ".":
+                relative_dir = ""
+
+            try:
+                stat = os.stat(full_path)
+                created_at = datetime.fromtimestamp(stat.st_ctime)
+                updated_at = datetime.fromtimestamp(stat.st_mtime)
+            except OSError:
+                created_at = datetime.now()
+                updated_at = datetime.now()
+
+            is_binary = False
+            try:
+                with open(full_path, 'rb') as f:
+                    chunk = f.read(8192)
+                    if b'\x00' in chunk:
+                        is_binary = True
+            except (IOError, OSError):
+                pass
+
+            files_to_insert.append((file_name, relative_dir, created_at, updated_at, is_binary, project_id))
+            count += 1
+
+            if count % 50 == 0:
+                yield {"type": "progress", "count": count}
+
+    yield {"type": "complete", "count": count, "files": files_to_insert}
+
+
 @router.post("/project/{project_id}/scan/files")
 def scan_files(request: Request, project_id: int):
     conn = get_conn()
@@ -148,6 +190,69 @@ def scan_files(request: Request, project_id: int):
     conn.close()
 
     return RedirectResponse(url=f"/inventory?project_id={project_id}", status_code=303)
+
+
+@router.websocket("/project/{project_id}/scan/files/ws")
+async def scan_files_ws(websocket: WebSocket, project_id: int):
+    await websocket.accept()
+
+    conn = None
+    cursor = None
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+        project = cursor.fetchone()
+
+        if not project:
+            await websocket.send_json({"type": "error", "message": "Project not found"})
+            await websocket.close()
+            return
+
+        dirty_root = project["dirty_root"]
+
+        # Clear existing files
+        cursor.execute("DELETE FROM files WHERE project_id = %s", (project_id,))
+        conn.commit()
+
+        # Send start message
+        await websocket.send_json({"type": "started"})
+
+        # Scan files and send progress
+        files_to_insert = []
+        for update in scan_files_generator(project_id, dirty_root):
+            if update["type"] == "progress":
+                await websocket.send_json(update)
+            elif update["type"] == "complete":
+                files_to_insert = update["files"]
+                await websocket.send_json({"type": "progress", "count": update["count"]})
+
+        # Batch insert
+        batch_size = 500
+        for i in range(0, len(files_to_insert), batch_size):
+            batch = files_to_insert[i:i+batch_size]
+            cursor.executemany(
+                "INSERT INTO files (file_name, path, created_at, updated_at, is_binary, project_id) VALUES (%s, %s, %s, %s, %s, %s)",
+                batch
+            )
+            conn.commit()
+
+        # Send completion
+        await websocket.send_json({"type": "done", "total": len(files_to_insert)})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 @router.post("/project/{project_id}/scan/lines")
