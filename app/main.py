@@ -211,6 +211,8 @@ def project_compare(request: Request, project_id: int, path: str):
 
 @app.post("/project/{project_id}/scan/files")
 def scan_files(request: Request, project_id: int):
+    from datetime import datetime
+
     conn = get_conn()
     cursor = conn.cursor()
 
@@ -227,22 +229,40 @@ def scan_files(request: Request, project_id: int):
 
     # Clear existing files for this project (allows re-scanning)
     cursor.execute("DELETE FROM files WHERE project_id = %s", (project_id,))
+    conn.commit()
 
-    # Walk through all files in dirty_root
-    file_count = 0
+    # Collect all files with metadata
+    files_to_insert = []
     for root, dirs, files in os.walk(dirty_root):
         for file_name in files:
             full_path = os.path.join(root, file_name)
-            # Store path relative to dirty_root
-            relative_path = os.path.relpath(full_path, dirty_root)
 
-            cursor.execute(
-                "INSERT INTO files (file_name, path, project_id) VALUES (%s, %s, %s)",
-                (file_name, relative_path, project_id)
-            )
-            file_count += 1
+            # Get directory path relative to dirty_root (without filename)
+            relative_dir = os.path.relpath(root, dirty_root)
+            if relative_dir == ".":
+                relative_dir = ""
 
-    conn.commit()
+            # Get file timestamps from filesystem
+            try:
+                stat = os.stat(full_path)
+                created_at = datetime.fromtimestamp(stat.st_ctime)
+                updated_at = datetime.fromtimestamp(stat.st_mtime)
+            except OSError:
+                created_at = datetime.now()
+                updated_at = datetime.now()
+
+            files_to_insert.append((file_name, relative_dir, created_at, updated_at, project_id))
+
+    # Batch insert for performance
+    batch_size = 500
+    for i in range(0, len(files_to_insert), batch_size):
+        batch = files_to_insert[i:i+batch_size]
+        cursor.executemany(
+            "INSERT INTO files (file_name, path, created_at, updated_at, project_id) VALUES (%s, %s, %s, %s, %s)",
+            batch
+        )
+        conn.commit()
+
     cursor.close()
     conn.close()
 
