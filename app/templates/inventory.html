@@ -24,6 +24,9 @@
         <div class="stat-progress">
             <span class="processed">{{ stats.files.processed_files or 0 }}</span> / {{ stats.files.total_files or 0 }} processed
         </div>
+        <form action="/project/{{ project.id }}/scan/files" method="post" class="scan-form">
+            <button type="submit" class="scan-btn">Scan Files</button>
+        </form>
     </div>
 
     <div class="stat-card">

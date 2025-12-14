@@ -282,3 +282,20 @@ select:focus {
     color: var(--accent);
     font-weight: bold;
 }
+
+.scan-form {
+    margin-top: 15px;
+    padding: 0;
+    background: transparent;
+}
+
+.scan-btn {
+    width: 100%;
+    background: var(--primary);
+    font-size: 0.9rem;
+    padding: 8px 15px;
+}
+
+.scan-btn:hover {
+    background: var(--primary-light);
+}

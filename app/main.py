@@ -207,3 +207,43 @@ def project_compare(request: Request, project_id: int, path: str):
             "clean_content": clean_content
         }
     )
+
+
+@app.post("/project/{project_id}/scan/files")
+def scan_files(request: Request, project_id: int):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # Get project
+    cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+
+    if not project:
+        cursor.close()
+        conn.close()
+        return RedirectResponse(url="/inventory", status_code=303)
+
+    dirty_root = project["dirty_root"]
+
+    # Clear existing files for this project (allows re-scanning)
+    cursor.execute("DELETE FROM files WHERE project_id = %s", (project_id,))
+
+    # Walk through all files in dirty_root
+    file_count = 0
+    for root, dirs, files in os.walk(dirty_root):
+        for file_name in files:
+            full_path = os.path.join(root, file_name)
+            # Store path relative to dirty_root
+            relative_path = os.path.relpath(full_path, dirty_root)
+
+            cursor.execute(
+                "INSERT INTO files (file_name, path, project_id) VALUES (%s, %s, %s)",
+                (file_name, relative_path, project_id)
+            )
+            file_count += 1
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return RedirectResponse(url=f"/inventory?project_id={project_id}", status_code=303)
