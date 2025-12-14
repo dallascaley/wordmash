@@ -36,6 +36,9 @@
         <div class="stat-progress">
             <span class="processed">{{ stats.file_rows.processed_rows or 0 }}</span> / {{ stats.file_rows.total_rows or 0 }} processed
         </div>
+        <form action="/project/{{ project.id }}/scan/lines" method="post" class="scan-form">
+            <button type="submit" class="scan-btn">Scan Lines</button>
+        </form>
     </div>
 
     <div class="stat-card">

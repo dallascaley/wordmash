@@ -251,15 +251,102 @@ def scan_files(request: Request, project_id: int):
                 created_at = datetime.now()
                 updated_at = datetime.now()
 
-            files_to_insert.append((file_name, relative_dir, created_at, updated_at, project_id))
+            # Check if file is binary (contains null bytes)
+            is_binary = False
+            try:
+                with open(full_path, 'rb') as f:
+                    chunk = f.read(8192)
+                    if b'\x00' in chunk:
+                        is_binary = True
+            except (IOError, OSError):
+                pass
+
+            files_to_insert.append((file_name, relative_dir, created_at, updated_at, is_binary, project_id))
 
     # Batch insert for performance
     batch_size = 500
     for i in range(0, len(files_to_insert), batch_size):
         batch = files_to_insert[i:i+batch_size]
         cursor.executemany(
-            "INSERT INTO files (file_name, path, created_at, updated_at, project_id) VALUES (%s, %s, %s, %s, %s)",
+            "INSERT INTO files (file_name, path, created_at, updated_at, is_binary, project_id) VALUES (%s, %s, %s, %s, %s, %s)",
             batch
+        )
+        conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    return RedirectResponse(url=f"/inventory?project_id={project_id}", status_code=303)
+
+
+@app.post("/project/{project_id}/scan/lines")
+def scan_lines(request: Request, project_id: int):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # Get project
+    cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+
+    if not project:
+        cursor.close()
+        conn.close()
+        return RedirectResponse(url="/inventory", status_code=303)
+
+    dirty_root = project["dirty_root"]
+
+    # Get all non-binary files for this project
+    cursor.execute("SELECT id, file_name, path FROM files WHERE project_id = %s AND is_binary = FALSE", (project_id,))
+    files = cursor.fetchall()
+
+    # Clear existing file_rows for this project's files
+    cursor.execute("""
+        DELETE fr FROM file_rows fr
+        JOIN files f ON fr.file_id = f.id
+        WHERE f.project_id = %s
+    """, (project_id,))
+    conn.commit()
+
+    # Process each file
+    rows_to_insert = []
+    batch_size = 1000
+
+    for file_record in files:
+        file_id = file_record["id"]
+        file_name = file_record["file_name"]
+        path = file_record["path"]
+
+        # Build full path
+        if path:
+            full_path = os.path.join(dirty_root, path, file_name)
+        else:
+            full_path = os.path.join(dirty_root, file_name)
+
+        # Read file and get lines
+        try:
+            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    # Clean the line for MySQL
+                    clean_line = line.rstrip('\n\r')
+                    rows_to_insert.append((clean_line, file_id))
+
+                    # Insert in batches
+                    if len(rows_to_insert) >= batch_size:
+                        cursor.executemany(
+                            "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
+                            rows_to_insert
+                        )
+                        conn.commit()
+                        rows_to_insert = []
+        except (IOError, OSError):
+            # Skip files that can't be read
+            pass
+
+    # Insert remaining rows
+    if rows_to_insert:
+        cursor.executemany(
+            "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
+            rows_to_insert
         )
         conn.commit()
 
