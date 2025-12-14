@@ -34,13 +34,16 @@
 
     <div class="stat-card">
         <h4>Lines of Code</h4>
-        <div class="stat-number">{{ stats.file_rows.total_rows or 0 }}</div>
+        <div class="stat-number" id="lines-count">{{ stats.file_rows.total_rows or 0 }}</div>
         <div class="stat-label">Total Lines</div>
         <div class="stat-progress">
             <span class="processed">{{ stats.file_rows.processed_rows or 0 }}</span> / {{ stats.file_rows.total_rows or 0 }} processed
         </div>
-        <form action="/project/{{ project.id }}/scan/lines" method="post" class="scan-form">
-            <button type="submit" class="scan-btn">Scan Lines</button>
+        <div id="scan-lines-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="scan-lines-count">0</span> lines found...
+        </div>
+        <form id="scan-lines-form" action="/project/{{ project.id }}/scan/lines" method="post" class="scan-form">
+            <button type="submit" id="scan-lines-btn" class="scan-btn">Scan Lines</button>
         </form>
     </div>
 
@@ -72,55 +75,106 @@
 {% if project %}
 <script>
 (function() {
-    var form = document.getElementById('scan-files-form');
-    var btn = document.getElementById('scan-btn');
-    var progress = document.getElementById('scan-progress');
-    var countSpan = document.getElementById('scan-count');
+    var projectId = '{{ project.id }}';
+    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+    // Scan Files WebSocket
+    var filesForm = document.getElementById('scan-files-form');
+    var filesBtn = document.getElementById('scan-btn');
+    var filesProgress = document.getElementById('scan-progress');
+    var filesCountSpan = document.getElementById('scan-count');
     var fileCount = document.getElementById('file-count');
 
-    if (!form || !window.WebSocket) return;
+    if (filesForm && window.WebSocket) {
+        filesForm.addEventListener('submit', function(e) {
+            e.preventDefault();
 
-    form.addEventListener('submit', function(e) {
-        e.preventDefault();
+            var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/files/ws';
+            var ws = new WebSocket(wsUrl);
 
-        var projectId = '{{ project.id }}';
-        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/files/ws';
+            ws.onopen = function() {
+                filesBtn.disabled = true;
+                filesBtn.textContent = 'Scanning...';
+                filesProgress.style.display = 'block';
+                filesCountSpan.textContent = '0';
+                fileCount.textContent = '0';
+            };
 
-        var ws = new WebSocket(wsUrl);
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
 
-        ws.onopen = function() {
-            btn.disabled = true;
-            btn.textContent = 'Scanning...';
-            progress.style.display = 'block';
-            countSpan.textContent = '0';
-        };
+                if (data.type === 'progress') {
+                    filesCountSpan.textContent = data.count;
+                    fileCount.textContent = data.count;
+                } else if (data.type === 'done') {
+                    filesCountSpan.textContent = data.total;
+                    fileCount.textContent = data.total;
+                    filesBtn.textContent = 'Done!';
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 1000);
+                } else if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                    filesBtn.disabled = false;
+                    filesBtn.textContent = 'Scan Files';
+                    filesProgress.style.display = 'none';
+                }
+            };
 
-        ws.onmessage = function(event) {
-            var data = JSON.parse(event.data);
+            ws.onerror = function() {
+                filesForm.submit();
+            };
+        });
+    }
 
-            if (data.type === 'progress') {
-                countSpan.textContent = data.count;
-                fileCount.textContent = data.count;
-            } else if (data.type === 'done') {
-                countSpan.textContent = data.total;
-                fileCount.textContent = data.total;
-                btn.textContent = 'Done!';
-                setTimeout(function() {
-                    window.location.reload();
-                }, 1000);
-            } else if (data.type === 'error') {
-                alert('Error: ' + data.message);
-                btn.disabled = false;
-                btn.textContent = 'Scan Files';
-                progress.style.display = 'none';
-            }
-        };
+    // Scan Lines WebSocket
+    var linesForm = document.getElementById('scan-lines-form');
+    var linesBtn = document.getElementById('scan-lines-btn');
+    var linesProgress = document.getElementById('scan-lines-progress');
+    var linesCountSpan = document.getElementById('scan-lines-count');
+    var linesCount = document.getElementById('lines-count');
 
-        ws.onerror = function() {
-            form.submit();
-        };
-    });
+    if (linesForm && window.WebSocket) {
+        linesForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/lines/ws';
+            var ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                linesBtn.disabled = true;
+                linesBtn.textContent = 'Scanning...';
+                linesProgress.style.display = 'block';
+                linesCountSpan.textContent = '0';
+                linesCount.textContent = '0';
+            };
+
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.type === 'progress') {
+                    linesCountSpan.textContent = data.count;
+                    linesCount.textContent = data.count;
+                } else if (data.type === 'done') {
+                    linesCountSpan.textContent = data.total;
+                    linesCount.textContent = data.total;
+                    linesBtn.textContent = 'Done!';
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 1000);
+                } else if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                    linesBtn.disabled = false;
+                    linesBtn.textContent = 'Scan Lines';
+                    linesProgress.style.display = 'none';
+                }
+            };
+
+            ws.onerror = function() {
+                linesForm.submit();
+            };
+        });
+    }
 })();
 </script>
 {% endif %}

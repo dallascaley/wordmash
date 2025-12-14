@@ -255,6 +255,47 @@ async def scan_files_ws(websocket: WebSocket, project_id: int):
             conn.close()
 
 
+def scan_lines_generator(files: list, dirty_root: str, batch_size: int = 1000):
+    """
+    Generator that yields batches of lines and progress updates.
+    Yields batches of (text, file_id) tuples and progress dicts.
+    """
+    count = 0
+    batch = []
+
+    for file_record in files:
+        file_id = file_record["id"]
+        file_name = file_record["file_name"]
+        path = file_record["path"]
+
+        if path:
+            full_path = os.path.join(dirty_root, path, file_name)
+        else:
+            full_path = os.path.join(dirty_root, file_name)
+
+        try:
+            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    clean_line = line.rstrip('\n\r')
+                    # Sanitize text
+                    clean_line = clean_line.encode('utf-8', errors='ignore').decode('utf-8')
+                    count += 1
+                    batch.append((clean_line, file_id))
+
+                    if len(batch) >= batch_size:
+                        yield {"type": "batch", "rows": batch}
+                        batch = []
+                        yield {"type": "progress", "count": count}
+        except (IOError, OSError):
+            pass
+
+    # Yield remaining batch
+    if batch:
+        yield {"type": "batch", "rows": batch}
+
+    yield {"type": "complete", "count": count}
+
+
 @router.post("/project/{project_id}/scan/lines")
 def scan_lines(request: Request, project_id: int):
     conn = get_conn()
@@ -280,43 +321,121 @@ def scan_lines(request: Request, project_id: int):
     """, (project_id,))
     conn.commit()
 
-    rows_to_insert = []
-    batch_size = 1000
-
-    for file_record in files:
-        file_id = file_record["id"]
-        file_name = file_record["file_name"]
-        path = file_record["path"]
-
-        if path:
-            full_path = os.path.join(dirty_root, path, file_name)
-        else:
-            full_path = os.path.join(dirty_root, file_name)
-
-        try:
-            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                for line in f:
-                    clean_line = line.rstrip('\n\r')
-                    rows_to_insert.append((clean_line, file_id))
-
-                    if len(rows_to_insert) >= batch_size:
-                        cursor.executemany(
-                            "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
-                            rows_to_insert
-                        )
-                        conn.commit()
-                        rows_to_insert = []
-        except (IOError, OSError):
-            pass
-
-    if rows_to_insert:
-        cursor.executemany(
-            "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
-            rows_to_insert
-        )
-        conn.commit()
+    # Use the same generator as WebSocket endpoint
+    for update in scan_lines_generator(files, dirty_root):
+        if update["type"] == "batch":
+            try:
+                cursor.executemany(
+                    "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
+                    update["rows"]
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
     cursor.close()
     conn.close()
 
     return RedirectResponse(url=f"/inventory?project_id={project_id}", status_code=303)
+
+
+@router.websocket("/project/{project_id}/scan/lines/ws")
+async def scan_lines_ws(websocket: WebSocket, project_id: int):
+    import asyncio
+    await websocket.accept()
+
+    conn = None
+    cursor = None
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+        project = cursor.fetchone()
+
+        if not project:
+            await websocket.send_json({"type": "error", "message": "Project not found"})
+            await websocket.close()
+            return
+
+        dirty_root = project["dirty_root"]
+
+        # Get files to scan
+        cursor.execute("SELECT id, file_name, path FROM files WHERE project_id = %s AND is_binary = FALSE", (project_id,))
+        files = cursor.fetchall()
+
+        # Clear existing lines
+        cursor.execute("""
+            DELETE fr FROM file_rows fr
+            JOIN files f ON fr.file_id = f.id
+            WHERE f.project_id = %s
+        """, (project_id,))
+        conn.commit()
+
+        # Send start message
+        await websocket.send_json({"type": "started"})
+
+        # Scan lines inline to properly yield control to event loop
+        total_count = 0
+        batch = []
+        batch_size = 1000
+
+        for file_record in files:
+            file_id = file_record["id"]
+            file_name = file_record["file_name"]
+            path = file_record["path"]
+
+            if path:
+                full_path = os.path.join(dirty_root, path, file_name)
+            else:
+                full_path = os.path.join(dirty_root, file_name)
+
+            try:
+                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        clean_line = line.rstrip('\n\r')
+                        clean_line = clean_line.encode('utf-8', errors='ignore').decode('utf-8')
+                        total_count += 1
+                        batch.append((clean_line, file_id))
+
+                        if len(batch) >= batch_size:
+                            try:
+                                cursor.executemany(
+                                    "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
+                                    batch
+                                )
+                                conn.commit()
+                            except Exception:
+                                conn.rollback()
+                            batch = []
+                            await websocket.send_json({"type": "progress", "count": total_count})
+                            await asyncio.sleep(0)  # Yield control to event loop
+            except (IOError, OSError):
+                pass
+
+        # Insert remaining batch
+        if batch:
+            try:
+                cursor.executemany(
+                    "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
+                    batch
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+        # Send completion
+        await websocket.send_json({"type": "done", "total": total_count})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
