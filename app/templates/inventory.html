@@ -43,7 +43,7 @@
             <span id="scan-lines-count">0</span> lines found...
         </div>
         <form id="scan-lines-form" action="/project/{{ project.id }}/scan/lines" method="post" class="scan-form">
-            <button type="submit" id="scan-lines-btn" class="scan-btn">Scan Lines</button>
+            <button type="submit" id="scan-lines-btn" class="scan-btn" {% if not stats.files.total_files %}disabled title="Scan files first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Lines</button>
         </form>
     </div>
 

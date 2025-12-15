@@ -300,6 +300,12 @@ select:focus {
     background: var(--primary-light);
 }
 
+.scan-btn:disabled {
+    background: #4a5568;
+    color: #718096;
+    cursor: not-allowed;
+}
+
 .reset-section {
     margin: 25px 0;
     text-align: center;
