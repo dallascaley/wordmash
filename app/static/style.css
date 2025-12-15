@@ -299,3 +299,24 @@ select:focus {
 .scan-btn:hover {
     background: var(--primary-light);
 }
+
+.reset-section {
+    margin: 25px 0;
+    text-align: center;
+}
+
+.reset-btn {
+    background: var(--danger);
+    color: white;
+    padding: 10px 30px;
+    font-size: 0.95rem;
+}
+
+.reset-btn:hover {
+    background: #c53030;
+}
+
+.reset-btn:disabled {
+    background: #718096;
+    cursor: not-allowed;
+}

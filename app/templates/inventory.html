@@ -66,6 +66,10 @@
     </div>
 </div>
 
+<div class="reset-section">
+    <button type="button" id="reset-btn" class="reset-btn" onclick="resetDatabase()">Reset Files &amp; Lines</button>
+</div>
+
 {% elif projects %}
 <p>Select a project to view its inventory.</p>
 {% else %}
@@ -74,6 +78,37 @@
 
 {% if project %}
 <script>
+function resetDatabase() {
+    if (!confirm('Are you sure you want to reset all files and lines data? This cannot be undone.')) {
+        return;
+    }
+
+    var btn = document.getElementById('reset-btn');
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+
+    fetch('/project/{{ project.id }}/reset', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+        if (data.success) {
+            btn.textContent = 'Reset Complete!';
+            setTimeout(function() { window.location.reload(); }, 1000);
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.textContent = 'Reset Files & Lines';
+        }
+    })
+    .catch(function(err) {
+        alert('Error: ' + err);
+        btn.disabled = false;
+        btn.textContent = 'Reset Files & Lines';
+    });
+}
+
 (function() {
     var projectId = '{{ project.id }}';
     var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

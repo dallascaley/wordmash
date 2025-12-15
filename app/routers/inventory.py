@@ -1,9 +1,40 @@
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from app.db import get_conn
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+
+
+@router.post("/project/{project_id}/reset")
+def reset_project_data(project_id: int):
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        # Delete file_rows for this project's files
+        cursor.execute("""
+            DELETE fr FROM file_rows fr
+            JOIN files f ON fr.file_id = f.id
+            WHERE f.project_id = %s
+        """, (project_id,))
+
+        # Delete files for this project
+        cursor.execute("DELETE FROM files WHERE project_id = %s", (project_id,))
+
+        conn.commit()
+
+        # Reset auto-increment (set to 1, MySQL will use next available)
+        cursor.execute("ALTER TABLE file_rows AUTO_INCREMENT = 1")
+        cursor.execute("ALTER TABLE files AUTO_INCREMENT = 1")
+
+        cursor.close()
+        conn.close()
+
+        return JSONResponse({"success": True})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
 @router.get("/inventory")
