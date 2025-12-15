@@ -1,10 +1,18 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from app.routers import projects, inventory
 import os
 
 app = FastAPI()
+
+
+@app.websocket("/ws/ping")
+async def websocket_ping(websocket: WebSocket):
+    await websocket.accept()
+    await websocket.close()
+
+
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 

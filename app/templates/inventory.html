@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
-<h2>Inventory</h2>
+<h2>Inventory {% if project %}<span id="ws-status" class="ws-status ws-checking" style="font-size: 12px; font-weight: normal;">checking...</span>{% endif %}</h2>
 
 <form action="/inventory" method="get" class="project-selector">
     <label>Select Project:
@@ -78,6 +78,39 @@
 
 {% if project %}
 <script>
+(function checkWebSocket() {
+    var statusEl = document.getElementById('ws-status');
+    if (!statusEl) return;
+
+    if (!window.WebSocket) {
+        statusEl.textContent = 'websockets unavailable';
+        statusEl.className = 'ws-status ws-unavailable';
+        return;
+    }
+
+    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = protocol + '//' + window.location.host + '/ws/ping';
+    var ws = new WebSocket(wsUrl);
+    var timeout = setTimeout(function() {
+        ws.close();
+        statusEl.textContent = 'websockets unavailable';
+        statusEl.className = 'ws-status ws-unavailable';
+    }, 3000);
+
+    ws.onopen = function() {
+        clearTimeout(timeout);
+        ws.close();
+        statusEl.textContent = 'websockets enabled';
+        statusEl.className = 'ws-status ws-enabled';
+    };
+
+    ws.onerror = function() {
+        clearTimeout(timeout);
+        statusEl.textContent = 'websockets unavailable';
+        statusEl.className = 'ws-status ws-unavailable';
+    };
+})();
+
 function resetDatabase() {
     if (!confirm('Are you sure you want to reset all files and lines data? This cannot be undone.')) {
         return;

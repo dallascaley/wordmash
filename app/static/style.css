@@ -320,3 +320,28 @@ select:focus {
     background: #718096;
     cursor: not-allowed;
 }
+
+h2 .ws-status {
+    font-size: 12px !important;
+    padding: 3px 8px;
+    border-radius: 10px;
+    margin-left: 10px;
+    vertical-align: middle;
+    font-weight: 400 !important;
+    display: inline-block;
+}
+
+.ws-checking {
+    background: #4a5568;
+    color: #a0aec0;
+}
+
+.ws-enabled {
+    background: rgba(56, 161, 105, 0.2);
+    color: var(--accent);
+}
+
+.ws-unavailable {
+    background: rgba(229, 62, 62, 0.2);
+    color: var(--danger);
+}
