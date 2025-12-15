@@ -1,0 +1,32 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Edit Project: {{ project.name }}</h2>
+
+<form action="/project/{{ project.id }}/edit" method="post">
+    <div>
+        <label>Name: <input type="text" name="name" value="{{ project.name }}" required></label>
+    </div>
+    <div>
+        <label>Description: <input type="text" name="description" value="{{ project.description or '' }}" placeholder="Project description"></label>
+    </div>
+    <div>
+        <label>URL: <input type="text" name="url" value="{{ project.url or '' }}" placeholder="https://example.com"></label>
+    </div>
+    <div>
+        <label>Clean Root: <input type="text" name="clean_root" value="{{ project.clean_root }}" required placeholder="/path/to/clean"></label>
+    </div>
+    <div>
+        <label>Dirty Root: <input type="text" name="dirty_root" value="{{ project.dirty_root }}" required placeholder="/path/to/dirty"></label>
+    </div>
+    <div>
+        <label>Clean DB: <input type="text" name="clean_db" value="{{ project.clean_db or '' }}" placeholder="clean_database_name"></label>
+    </div>
+    <div>
+        <label>Dirty DB: <input type="text" name="dirty_db" value="{{ project.dirty_db or '' }}" placeholder="dirty_database_name"></label>
+    </div>
+    <div class="form-actions">
+        <button type="submit">Save Changes</button>
+        <a href="/projects" class="cancel-btn">Cancel</a>
+    </div>
+</form>
+{% endblock %}

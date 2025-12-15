@@ -49,20 +49,32 @@
 
     <div class="stat-card">
         <h4>Database Tables</h4>
-        <div class="stat-number">{{ stats.db_tables.total_tables or 0 }}</div>
+        <div class="stat-number" id="tables-count">{{ stats.db_tables.total_tables or 0 }}</div>
         <div class="stat-label">Total Tables</div>
         <div class="stat-progress">
             <span class="processed">{{ stats.db_tables.processed_tables or 0 }}</span> / {{ stats.db_tables.total_tables or 0 }} processed
         </div>
+        <div id="scan-tables-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="scan-tables-count">0</span> tables found...
+        </div>
+        <form id="scan-tables-form" action="/project/{{ project.id }}/scan/tables" method="post" class="scan-form">
+            <button type="submit" id="scan-tables-btn" class="scan-btn" {% if not project.dirty_db %}disabled title="Set Dirty DB in project settings first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Tables</button>
+        </form>
     </div>
 
     <div class="stat-card">
         <h4>Database Rows</h4>
-        <div class="stat-number">{{ stats.db_table_rows.total_rows or 0 }}</div>
+        <div class="stat-number" id="db-rows-count">{{ stats.db_table_rows.total_rows or 0 }}</div>
         <div class="stat-label">Total Rows</div>
         <div class="stat-progress">
             <span class="processed">{{ stats.db_table_rows.processed_rows or 0 }}</span> / {{ stats.db_table_rows.total_rows or 0 }} processed
         </div>
+        <div id="scan-db-rows-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="scan-db-rows-count">0</span> rows found...
+        </div>
+        <form id="scan-db-rows-form" action="/project/{{ project.id }}/scan/db-rows" method="post" class="scan-form">
+            <button type="submit" id="scan-db-rows-btn" class="scan-btn" {% if not stats.db_tables.total_tables %}disabled title="Scan tables first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Rows</button>
+        </form>
     </div>
 </div>
 
@@ -240,6 +252,104 @@ function resetDatabase() {
 
             ws.onerror = function() {
                 linesForm.submit();
+            };
+        });
+    }
+
+    // Scan Tables WebSocket
+    var tablesForm = document.getElementById('scan-tables-form');
+    var tablesBtn = document.getElementById('scan-tables-btn');
+    var tablesProgress = document.getElementById('scan-tables-progress');
+    var tablesCountSpan = document.getElementById('scan-tables-count');
+    var tablesCount = document.getElementById('tables-count');
+
+    if (tablesForm && tablesBtn && !tablesBtn.disabled && window.WebSocket) {
+        tablesForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/tables/ws';
+            var ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                tablesBtn.disabled = true;
+                tablesBtn.textContent = 'Scanning...';
+                tablesProgress.style.display = 'block';
+                tablesCountSpan.textContent = '0';
+                tablesCount.textContent = '0';
+            };
+
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.type === 'progress') {
+                    tablesCountSpan.textContent = data.count;
+                    tablesCount.textContent = data.count;
+                } else if (data.type === 'done') {
+                    tablesCountSpan.textContent = data.total;
+                    tablesCount.textContent = data.total;
+                    tablesBtn.textContent = 'Done!';
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 1000);
+                } else if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                    tablesBtn.disabled = false;
+                    tablesBtn.textContent = 'Scan Tables';
+                    tablesProgress.style.display = 'none';
+                }
+            };
+
+            ws.onerror = function() {
+                tablesForm.submit();
+            };
+        });
+    }
+
+    // Scan DB Rows WebSocket
+    var dbRowsForm = document.getElementById('scan-db-rows-form');
+    var dbRowsBtn = document.getElementById('scan-db-rows-btn');
+    var dbRowsProgress = document.getElementById('scan-db-rows-progress');
+    var dbRowsCountSpan = document.getElementById('scan-db-rows-count');
+    var dbRowsCount = document.getElementById('db-rows-count');
+
+    if (dbRowsForm && dbRowsBtn && !dbRowsBtn.disabled && window.WebSocket) {
+        dbRowsForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/db-rows/ws';
+            var ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                dbRowsBtn.disabled = true;
+                dbRowsBtn.textContent = 'Scanning...';
+                dbRowsProgress.style.display = 'block';
+                dbRowsCountSpan.textContent = '0';
+                dbRowsCount.textContent = '0';
+            };
+
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.type === 'progress') {
+                    dbRowsCountSpan.textContent = data.count;
+                    dbRowsCount.textContent = data.count;
+                } else if (data.type === 'done') {
+                    dbRowsCountSpan.textContent = data.total;
+                    dbRowsCount.textContent = data.total;
+                    dbRowsBtn.textContent = 'Done!';
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 1000);
+                } else if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                    dbRowsBtn.disabled = false;
+                    dbRowsBtn.textContent = 'Scan Rows';
+                    dbRowsProgress.style.display = 'none';
+                }
+            };
+
+            ws.onerror = function() {
+                dbRowsForm.submit();
             };
         });
     }

@@ -19,6 +19,12 @@
     <div>
         <label>Dirty Root: <input type="text" name="dirty_root" required placeholder="/path/to/dirty"></label>
     </div>
+    <div>
+        <label>Clean DB: <input type="text" name="clean_db" placeholder="clean_database_name"></label>
+    </div>
+    <div>
+        <label>Dirty DB: <input type="text" name="dirty_db" placeholder="dirty_database_name"></label>
+    </div>
     <button type="submit">Create Project</button>
 </form>
 
@@ -41,7 +47,10 @@
             <td>{{ project.description or '' }}</td>
             <td>{% if project.url %}<a href="{{ project.url }}" target="_blank">{{ project.url }}</a>{% endif %}</td>
             <td>{{ project.created_at }}</td>
-            <td><a href="/project/{{ project.id }}">View</a></td>
+            <td>
+                <a href="/project/{{ project.id }}">View</a>
+                <a href="/project/{{ project.id }}/edit" class="edit-link">Edit</a>
+            </td>
         </tr>
         {% endfor %}
     </tbody>
