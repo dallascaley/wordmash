@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Training</h2>
+
+<form action="/training" method="get" class="project-selector">
+    <label>Select Project:
+        <select name="project_id" onchange="this.form.submit()">
+            <option value="">-- Choose a project --</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}" {% if project and project.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+
+    <label style="margin-left: 1rem;">Data Type:
+        <select name="data_type" onchange="this.form.submit()">
+            {% for dt in data_types %}
+            <option value="{{ dt.value }}" {% if selected_data_type == dt.value %}selected{% endif %}>{{ dt.label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+</form>
+
+{% if project %}
+<h3>{{ project.name }}</h3>
+<p>Selected data type: <strong>{{ selected_data_type }}</strong></p>
+
+<!-- Training content will go here -->
+
+{% elif projects %}
+<p>Select a project to begin training.</p>
+{% else %}
+<p>No projects yet. <a href="/projects">Create one</a> to get started.</p>
+{% endif %}
+
+{% endblock %}

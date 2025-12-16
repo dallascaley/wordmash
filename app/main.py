@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from app.routers import projects, inventory
+from app.routers import projects, inventory, training
 import os
 
 app = FastAPI()
@@ -19,6 +19,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 # Include routers
 app.include_router(projects.router)
 app.include_router(inventory.router)
+app.include_router(training.router)
 
 BROKEN_ROOT = "/home/hakr49/dallascaley.info/dallascaley-old"
 CLEAN_ROOT = "/home/hakr49/dallascaley.info/wordpress"
