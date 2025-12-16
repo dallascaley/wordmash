@@ -133,7 +133,7 @@ def project_compare(request: Request, project_id: int, path: str):
     )
 
 
-def scan_files_generator(project_id: int, dirty_root: str):
+def scan_files_generator(project_id: int, root_path: str, is_dirty: int):
     """
     Generator that yields file count updates during scanning.
     Yields progress dicts every 50 files, then a complete dict with all files.
@@ -141,11 +141,11 @@ def scan_files_generator(project_id: int, dirty_root: str):
     files_to_insert = []
     count = 0
 
-    for root, dirs, files in os.walk(dirty_root):
+    for root, dirs, files in os.walk(root_path):
         for file_name in files:
             full_path = os.path.join(root, file_name)
 
-            relative_dir = os.path.relpath(root, dirty_root)
+            relative_dir = os.path.relpath(root, root_path)
             if relative_dir == ".":
                 relative_dir = ""
 
@@ -166,7 +166,7 @@ def scan_files_generator(project_id: int, dirty_root: str):
             except (IOError, OSError):
                 pass
 
-            files_to_insert.append((file_name, relative_dir, created_at, updated_at, is_binary, project_id))
+            files_to_insert.append((file_name, relative_dir, created_at, updated_at, is_binary, project_id, is_dirty))
             count += 1
 
             if count % 50 == 0:
@@ -176,7 +176,7 @@ def scan_files_generator(project_id: int, dirty_root: str):
 
 
 @router.post("/project/{project_id}/scan/files")
-def scan_files(request: Request, project_id: int):
+def scan_files(request: Request, project_id: int, is_dirty: int = 1):
     conn = get_conn()
     cursor = conn.cursor()
 
@@ -188,17 +188,18 @@ def scan_files(request: Request, project_id: int):
         conn.close()
         return RedirectResponse(url="/inventory", status_code=303)
 
-    dirty_root = project["dirty_root"]
+    root_path = project["dirty_root"] if is_dirty else project["clean_root"]
 
-    cursor.execute("DELETE FROM files WHERE project_id = %s", (project_id,))
+    # Only delete files for this project with the same is_dirty flag
+    cursor.execute("DELETE FROM files WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
     conn.commit()
 
     files_to_insert = []
-    for root, dirs, files in os.walk(dirty_root):
+    for root, dirs, files in os.walk(root_path):
         for file_name in files:
             full_path = os.path.join(root, file_name)
 
-            relative_dir = os.path.relpath(root, dirty_root)
+            relative_dir = os.path.relpath(root, root_path)
             if relative_dir == ".":
                 relative_dir = ""
 
@@ -219,13 +220,13 @@ def scan_files(request: Request, project_id: int):
             except (IOError, OSError):
                 pass
 
-            files_to_insert.append((file_name, relative_dir, created_at, updated_at, is_binary, project_id))
+            files_to_insert.append((file_name, relative_dir, created_at, updated_at, is_binary, project_id, is_dirty))
 
     batch_size = 500
     for i in range(0, len(files_to_insert), batch_size):
         batch = files_to_insert[i:i+batch_size]
         cursor.executemany(
-            "INSERT INTO files (file_name, path, created_at, updated_at, is_binary, project_id) VALUES (%s, %s, %s, %s, %s, %s)",
+            "INSERT INTO files (file_name, path, created_at, updated_at, is_binary, project_id, is_dirty) VALUES (%s, %s, %s, %s, %s, %s, %s)",
             batch
         )
         conn.commit()
@@ -237,7 +238,7 @@ def scan_files(request: Request, project_id: int):
 
 
 @router.websocket("/project/{project_id}/scan/files/ws")
-async def scan_files_ws(websocket: WebSocket, project_id: int):
+async def scan_files_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1):
     await websocket.accept()
 
     conn = None
@@ -254,10 +255,10 @@ async def scan_files_ws(websocket: WebSocket, project_id: int):
             await websocket.close()
             return
 
-        dirty_root = project["dirty_root"]
+        root_path = project["dirty_root"] if is_dirty else project["clean_root"]
 
-        # Clear existing files
-        cursor.execute("DELETE FROM files WHERE project_id = %s", (project_id,))
+        # Clear existing files for this is_dirty type only
+        cursor.execute("DELETE FROM files WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
         conn.commit()
 
         # Send start message
@@ -265,7 +266,7 @@ async def scan_files_ws(websocket: WebSocket, project_id: int):
 
         # Scan files and send progress
         files_to_insert = []
-        for update in scan_files_generator(project_id, dirty_root):
+        for update in scan_files_generator(project_id, root_path, is_dirty):
             if update["type"] == "progress":
                 await websocket.send_json(update)
             elif update["type"] == "complete":
@@ -277,7 +278,7 @@ async def scan_files_ws(websocket: WebSocket, project_id: int):
         for i in range(0, len(files_to_insert), batch_size):
             batch = files_to_insert[i:i+batch_size]
             cursor.executemany(
-                "INSERT INTO files (file_name, path, created_at, updated_at, is_binary, project_id) VALUES (%s, %s, %s, %s, %s, %s)",
+                "INSERT INTO files (file_name, path, created_at, updated_at, is_binary, project_id, is_dirty) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 batch
             )
             conn.commit()
@@ -299,10 +300,10 @@ async def scan_files_ws(websocket: WebSocket, project_id: int):
             conn.close()
 
 
-def scan_lines_generator(files: list, dirty_root: str, batch_size: int = 1000):
+def scan_lines_generator(files: list, root_path: str, is_dirty: int, batch_size: int = 1000):
     """
     Generator that yields batches of lines and progress updates.
-    Yields batches of (text, file_id) tuples and progress dicts.
+    Yields batches of (text, file_id, is_dirty) tuples and progress dicts.
     """
     count = 0
     batch = []
@@ -313,9 +314,9 @@ def scan_lines_generator(files: list, dirty_root: str, batch_size: int = 1000):
         path = file_record["path"]
 
         if path:
-            full_path = os.path.join(dirty_root, path, file_name)
+            full_path = os.path.join(root_path, path, file_name)
         else:
-            full_path = os.path.join(dirty_root, file_name)
+            full_path = os.path.join(root_path, file_name)
 
         try:
             with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -324,7 +325,7 @@ def scan_lines_generator(files: list, dirty_root: str, batch_size: int = 1000):
                     # Sanitize text
                     clean_line = clean_line.encode('utf-8', errors='ignore').decode('utf-8')
                     count += 1
-                    batch.append((clean_line, file_id))
+                    batch.append((clean_line, file_id, is_dirty))
 
                     if len(batch) >= batch_size:
                         yield {"type": "batch", "rows": batch}
@@ -341,7 +342,7 @@ def scan_lines_generator(files: list, dirty_root: str, batch_size: int = 1000):
 
 
 @router.post("/project/{project_id}/scan/lines")
-def scan_lines(request: Request, project_id: int):
+def scan_lines(request: Request, project_id: int, is_dirty: int = 1):
     conn = get_conn()
     cursor = conn.cursor()
 
@@ -353,24 +354,24 @@ def scan_lines(request: Request, project_id: int):
         conn.close()
         return RedirectResponse(url="/inventory", status_code=303)
 
-    dirty_root = project["dirty_root"]
+    root_path = project["dirty_root"] if is_dirty else project["clean_root"]
 
-    cursor.execute("SELECT id, file_name, path FROM files WHERE project_id = %s AND is_binary = FALSE", (project_id,))
+    cursor.execute("SELECT id, file_name, path FROM files WHERE project_id = %s AND is_binary = FALSE AND is_dirty = %s", (project_id, is_dirty))
     files = cursor.fetchall()
 
     cursor.execute("""
         DELETE fr FROM file_rows fr
         JOIN files f ON fr.file_id = f.id
-        WHERE f.project_id = %s
-    """, (project_id,))
+        WHERE f.project_id = %s AND f.is_dirty = %s
+    """, (project_id, is_dirty))
     conn.commit()
 
     # Use the same generator as WebSocket endpoint
-    for update in scan_lines_generator(files, dirty_root):
+    for update in scan_lines_generator(files, root_path, is_dirty):
         if update["type"] == "batch":
             try:
                 cursor.executemany(
-                    "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
+                    "INSERT INTO file_rows (text, file_id, is_dirty) VALUES (%s, %s, %s)",
                     update["rows"]
                 )
                 conn.commit()
@@ -384,7 +385,7 @@ def scan_lines(request: Request, project_id: int):
 
 
 @router.websocket("/project/{project_id}/scan/lines/ws")
-async def scan_lines_ws(websocket: WebSocket, project_id: int):
+async def scan_lines_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1):
     import asyncio
     await websocket.accept()
 
@@ -402,18 +403,18 @@ async def scan_lines_ws(websocket: WebSocket, project_id: int):
             await websocket.close()
             return
 
-        dirty_root = project["dirty_root"]
+        root_path = project["dirty_root"] if is_dirty else project["clean_root"]
 
         # Get files to scan
-        cursor.execute("SELECT id, file_name, path FROM files WHERE project_id = %s AND is_binary = FALSE", (project_id,))
+        cursor.execute("SELECT id, file_name, path FROM files WHERE project_id = %s AND is_binary = FALSE AND is_dirty = %s", (project_id, is_dirty))
         files = cursor.fetchall()
 
-        # Clear existing lines
+        # Clear existing lines for this is_dirty type
         cursor.execute("""
             DELETE fr FROM file_rows fr
             JOIN files f ON fr.file_id = f.id
-            WHERE f.project_id = %s
-        """, (project_id,))
+            WHERE f.project_id = %s AND f.is_dirty = %s
+        """, (project_id, is_dirty))
         conn.commit()
 
         # Send start message
@@ -430,9 +431,9 @@ async def scan_lines_ws(websocket: WebSocket, project_id: int):
             path = file_record["path"]
 
             if path:
-                full_path = os.path.join(dirty_root, path, file_name)
+                full_path = os.path.join(root_path, path, file_name)
             else:
-                full_path = os.path.join(dirty_root, file_name)
+                full_path = os.path.join(root_path, file_name)
 
             try:
                 with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -440,12 +441,12 @@ async def scan_lines_ws(websocket: WebSocket, project_id: int):
                         clean_line = line.rstrip('\n\r')
                         clean_line = clean_line.encode('utf-8', errors='ignore').decode('utf-8')
                         total_count += 1
-                        batch.append((clean_line, file_id))
+                        batch.append((clean_line, file_id, is_dirty))
 
                         if len(batch) >= batch_size:
                             try:
                                 cursor.executemany(
-                                    "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
+                                    "INSERT INTO file_rows (text, file_id, is_dirty) VALUES (%s, %s, %s)",
                                     batch
                                 )
                                 conn.commit()
@@ -461,7 +462,7 @@ async def scan_lines_ws(websocket: WebSocket, project_id: int):
         if batch:
             try:
                 cursor.executemany(
-                    "INSERT INTO file_rows (text, file_id) VALUES (%s, %s)",
+                    "INSERT INTO file_rows (text, file_id, is_dirty) VALUES (%s, %s, %s)",
                     batch
                 )
                 conn.commit()
@@ -498,27 +499,26 @@ def get_external_db_conn(db_name: str):
 
 
 @router.post("/project/{project_id}/scan/tables")
-def scan_tables(request: Request, project_id: int):
+def scan_tables(request: Request, project_id: int, is_dirty: int = 1):
     conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
     project = cursor.fetchone()
 
-    if not project or not project.get("dirty_db"):
+    db_name = project.get("dirty_db") if is_dirty else project.get("clean_db")
+    if not project or not db_name:
         cursor.close()
         conn.close()
         return RedirectResponse(url=f"/inventory?project_id={project_id}", status_code=303)
 
-    dirty_db = project["dirty_db"]
-
-    # Clear existing tables for this project
-    cursor.execute("DELETE FROM db_tables WHERE project_id = %s", (project_id,))
+    # Clear existing tables for this project and is_dirty type
+    cursor.execute("DELETE FROM db_tables WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
     conn.commit()
 
     try:
-        # Connect to dirty database and get tables
-        ext_conn = get_external_db_conn(dirty_db)
+        # Connect to database and get tables
+        ext_conn = get_external_db_conn(db_name)
         ext_cursor = ext_conn.cursor()
         ext_cursor.execute("SHOW TABLES")
         tables = ext_cursor.fetchall()
@@ -529,8 +529,8 @@ def scan_tables(request: Request, project_id: int):
         for table_row in tables:
             table_name = list(table_row.values())[0]
             cursor.execute(
-                "INSERT INTO db_tables (table_name, project_id) VALUES (%s, %s)",
-                (table_name, project_id)
+                "INSERT INTO db_tables (table_name, project_id, is_dirty) VALUES (%s, %s, %s)",
+                (table_name, project_id, is_dirty)
             )
         conn.commit()
     except Exception as e:
@@ -543,7 +543,7 @@ def scan_tables(request: Request, project_id: int):
 
 
 @router.websocket("/project/{project_id}/scan/tables/ws")
-async def scan_tables_ws(websocket: WebSocket, project_id: int):
+async def scan_tables_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1):
     await websocket.accept()
 
     conn = None
@@ -555,21 +555,20 @@ async def scan_tables_ws(websocket: WebSocket, project_id: int):
         cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
         project = cursor.fetchone()
 
-        if not project or not project.get("dirty_db"):
-            await websocket.send_json({"type": "error", "message": "Project not found or dirty_db not set"})
+        db_name = project.get("dirty_db") if is_dirty else project.get("clean_db")
+        if not project or not db_name:
+            await websocket.send_json({"type": "error", "message": "Project not found or database not set"})
             await websocket.close()
             return
 
-        dirty_db = project["dirty_db"]
-
-        # Clear existing tables
-        cursor.execute("DELETE FROM db_tables WHERE project_id = %s", (project_id,))
+        # Clear existing tables for this is_dirty type
+        cursor.execute("DELETE FROM db_tables WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
         conn.commit()
 
         await websocket.send_json({"type": "started"})
 
-        # Connect to dirty database and get tables
-        ext_conn = get_external_db_conn(dirty_db)
+        # Connect to database and get tables
+        ext_conn = get_external_db_conn(db_name)
         ext_cursor = ext_conn.cursor()
         ext_cursor.execute("SHOW TABLES")
         tables = ext_cursor.fetchall()
@@ -580,8 +579,8 @@ async def scan_tables_ws(websocket: WebSocket, project_id: int):
         for table_row in tables:
             table_name = list(table_row.values())[0]
             cursor.execute(
-                "INSERT INTO db_tables (table_name, project_id) VALUES (%s, %s)",
-                (table_name, project_id)
+                "INSERT INTO db_tables (table_name, project_id, is_dirty) VALUES (%s, %s, %s)",
+                (table_name, project_id, is_dirty)
             )
             count += 1
             await websocket.send_json({"type": "progress", "count": count})
@@ -604,22 +603,21 @@ async def scan_tables_ws(websocket: WebSocket, project_id: int):
 
 
 @router.post("/project/{project_id}/scan/db-rows")
-def scan_db_rows(request: Request, project_id: int):
+def scan_db_rows(request: Request, project_id: int, is_dirty: int = 1):
     conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
     project = cursor.fetchone()
 
-    if not project or not project.get("dirty_db"):
+    db_name = project.get("dirty_db") if is_dirty else project.get("clean_db")
+    if not project or not db_name:
         cursor.close()
         conn.close()
         return RedirectResponse(url=f"/inventory?project_id={project_id}", status_code=303)
 
-    dirty_db = project["dirty_db"]
-
-    # Get tables for this project
-    cursor.execute("SELECT id, table_name FROM db_tables WHERE project_id = %s", (project_id,))
+    # Get tables for this project and is_dirty type
+    cursor.execute("SELECT id, table_name FROM db_tables WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
     tables = cursor.fetchall()
 
     if not tables:
@@ -627,16 +625,16 @@ def scan_db_rows(request: Request, project_id: int):
         conn.close()
         return RedirectResponse(url=f"/inventory?project_id={project_id}", status_code=303)
 
-    # Clear existing rows for this project's tables
+    # Clear existing rows for this project's tables with matching is_dirty
     cursor.execute("""
         DELETE dtr FROM db_table_rows dtr
         JOIN db_tables dt ON dtr.table_id = dt.id
-        WHERE dt.project_id = %s
-    """, (project_id,))
+        WHERE dt.project_id = %s AND dt.is_dirty = %s
+    """, (project_id, is_dirty))
     conn.commit()
 
     try:
-        ext_conn = get_external_db_conn(dirty_db)
+        ext_conn = get_external_db_conn(db_name)
         ext_cursor = ext_conn.cursor()
 
         rows_to_insert = []
@@ -652,7 +650,7 @@ def scan_db_rows(request: Request, project_id: int):
                     for field_name, value in row.items():
                         if value is not None:
                             contents = str(value)
-                            rows_to_insert.append((field_name, contents, table_id))
+                            rows_to_insert.append((field_name, contents, table_id, is_dirty))
             except Exception:
                 continue
 
@@ -664,7 +662,7 @@ def scan_db_rows(request: Request, project_id: int):
         for i in range(0, len(rows_to_insert), batch_size):
             batch = rows_to_insert[i:i+batch_size]
             cursor.executemany(
-                "INSERT INTO db_table_rows (field_name, contents, table_id) VALUES (%s, %s, %s)",
+                "INSERT INTO db_table_rows (field_name, contents, table_id, is_dirty) VALUES (%s, %s, %s, %s)",
                 batch
             )
             conn.commit()
@@ -679,7 +677,7 @@ def scan_db_rows(request: Request, project_id: int):
 
 
 @router.websocket("/project/{project_id}/scan/db-rows/ws")
-async def scan_db_rows_ws(websocket: WebSocket, project_id: int):
+async def scan_db_rows_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1):
     import asyncio
     await websocket.accept()
 
@@ -694,15 +692,14 @@ async def scan_db_rows_ws(websocket: WebSocket, project_id: int):
         cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
         project = cursor.fetchone()
 
-        if not project or not project.get("dirty_db"):
-            await websocket.send_json({"type": "error", "message": "Project not found or dirty_db not set"})
+        db_name = project.get("dirty_db") if is_dirty else project.get("clean_db")
+        if not project or not db_name:
+            await websocket.send_json({"type": "error", "message": "Project not found or database not set"})
             await websocket.close()
             return
 
-        dirty_db = project["dirty_db"]
-
-        # Get tables for this project
-        cursor.execute("SELECT id, table_name FROM db_tables WHERE project_id = %s", (project_id,))
+        # Get tables for this project and is_dirty type
+        cursor.execute("SELECT id, table_name FROM db_tables WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
         tables = cursor.fetchall()
 
         if not tables:
@@ -710,17 +707,17 @@ async def scan_db_rows_ws(websocket: WebSocket, project_id: int):
             await websocket.close()
             return
 
-        # Clear existing rows
+        # Clear existing rows for this is_dirty type
         cursor.execute("""
             DELETE dtr FROM db_table_rows dtr
             JOIN db_tables dt ON dtr.table_id = dt.id
-            WHERE dt.project_id = %s
-        """, (project_id,))
+            WHERE dt.project_id = %s AND dt.is_dirty = %s
+        """, (project_id, is_dirty))
         conn.commit()
 
         await websocket.send_json({"type": "started"})
 
-        ext_conn = get_external_db_conn(dirty_db)
+        ext_conn = get_external_db_conn(db_name)
         ext_cursor = ext_conn.cursor()
 
         total_count = 0
@@ -740,11 +737,11 @@ async def scan_db_rows_ws(websocket: WebSocket, project_id: int):
                         if value is not None:
                             contents = str(value)
                             total_count += 1
-                            batch.append((field_name, contents, table_id))
+                            batch.append((field_name, contents, table_id, is_dirty))
 
                             if len(batch) >= batch_size:
                                 cursor.executemany(
-                                    "INSERT INTO db_table_rows (field_name, contents, table_id) VALUES (%s, %s, %s)",
+                                    "INSERT INTO db_table_rows (field_name, contents, table_id, is_dirty) VALUES (%s, %s, %s, %s)",
                                     batch
                                 )
                                 conn.commit()
@@ -757,7 +754,7 @@ async def scan_db_rows_ws(websocket: WebSocket, project_id: int):
         # Insert remaining batch
         if batch:
             cursor.executemany(
-                "INSERT INTO db_table_rows (field_name, contents, table_id) VALUES (%s, %s, %s)",
+                "INSERT INTO db_table_rows (field_name, contents, table_id, is_dirty) VALUES (%s, %s, %s, %s)",
                 batch
             )
             conn.commit()

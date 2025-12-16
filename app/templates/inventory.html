@@ -16,70 +16,134 @@
 {% if project %}
 <h3>{{ project.name }}</h3>
 
+<h4 class="section-title">Clean</h4>
 <div class="stats-grid">
     <div class="stat-card">
         <h4>Files</h4>
-        <div class="stat-number" id="file-count">{{ stats.files.total_files or 0 }}</div>
+        <div class="stat-number" id="clean-file-count">{{ clean_stats.files.total_files or 0 }}</div>
         <div class="stat-label">Total Files</div>
         <div class="stat-progress">
-            <span class="processed">{{ stats.files.processed_files or 0 }}</span> / {{ stats.files.total_files or 0 }} processed
+            <span class="processed">{{ clean_stats.files.processed_files or 0 }}</span> / {{ clean_stats.files.total_files or 0 }} processed
         </div>
-        <div id="scan-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
-            <span id="scan-count">0</span> files found...
+        <div id="clean-scan-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="clean-scan-count">0</span> files found...
         </div>
-        <form id="scan-files-form" action="/project/{{ project.id }}/scan/files" method="post" class="scan-form">
-            <button type="submit" id="scan-btn" class="scan-btn">Scan Files</button>
+        <form id="clean-scan-files-form" action="/project/{{ project.id }}/scan/files?is_dirty=0" method="post" class="scan-form">
+            <button type="submit" id="clean-scan-btn" class="scan-btn">Scan Files</button>
         </form>
     </div>
 
     <div class="stat-card">
         <h4>Lines of Code</h4>
-        <div class="stat-number" id="lines-count">{{ stats.file_rows.total_rows or 0 }}</div>
+        <div class="stat-number" id="clean-lines-count">{{ clean_stats.file_rows.total_rows or 0 }}</div>
         <div class="stat-label">Total Lines</div>
         <div class="stat-progress">
-            <span class="processed">{{ stats.file_rows.processed_rows or 0 }}</span> / {{ stats.file_rows.total_rows or 0 }} processed
+            <span class="processed">{{ clean_stats.file_rows.processed_rows or 0 }}</span> / {{ clean_stats.file_rows.total_rows or 0 }} processed
         </div>
-        <div id="scan-lines-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
-            <span id="scan-lines-count">0</span> lines found...
+        <div id="clean-scan-lines-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="clean-scan-lines-count">0</span> lines found...
         </div>
-        <form id="scan-lines-form" action="/project/{{ project.id }}/scan/lines" method="post" class="scan-form">
-            <button type="submit" id="scan-lines-btn" class="scan-btn" {% if not stats.files.total_files %}disabled title="Scan files first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Lines</button>
+        <form id="clean-scan-lines-form" action="/project/{{ project.id }}/scan/lines?is_dirty=0" method="post" class="scan-form">
+            <button type="submit" id="clean-scan-lines-btn" class="scan-btn" {% if not clean_stats.files.total_files %}disabled title="Scan files first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Lines</button>
         </form>
     </div>
 
     <div class="stat-card">
         <h4>Database Tables</h4>
-        <div class="stat-number" id="tables-count">{{ stats.db_tables.total_tables or 0 }}</div>
+        <div class="stat-number" id="clean-tables-count">{{ clean_stats.db_tables.total_tables or 0 }}</div>
         <div class="stat-label">Total Tables</div>
         <div class="stat-progress">
-            <span class="processed">{{ stats.db_tables.processed_tables or 0 }}</span> / {{ stats.db_tables.total_tables or 0 }} processed
+            <span class="processed">{{ clean_stats.db_tables.processed_tables or 0 }}</span> / {{ clean_stats.db_tables.total_tables or 0 }} processed
         </div>
-        <div id="scan-tables-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
-            <span id="scan-tables-count">0</span> tables found...
+        <div id="clean-scan-tables-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="clean-scan-tables-count">0</span> tables found...
         </div>
-        <form id="scan-tables-form" action="/project/{{ project.id }}/scan/tables" method="post" class="scan-form">
-            <button type="submit" id="scan-tables-btn" class="scan-btn" {% if not project.dirty_db %}disabled title="Set Dirty DB in project settings first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Tables</button>
+        <form id="clean-scan-tables-form" action="/project/{{ project.id }}/scan/tables?is_dirty=0" method="post" class="scan-form">
+            <button type="submit" id="clean-scan-tables-btn" class="scan-btn" {% if not project.clean_db %}disabled title="Set Clean DB in project settings first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Tables</button>
         </form>
     </div>
 
     <div class="stat-card">
         <h4>Database Rows</h4>
-        <div class="stat-number" id="db-rows-count">{{ stats.db_table_rows.total_rows or 0 }}</div>
+        <div class="stat-number" id="clean-db-rows-count">{{ clean_stats.db_table_rows.total_rows or 0 }}</div>
         <div class="stat-label">Total Rows</div>
         <div class="stat-progress">
-            <span class="processed">{{ stats.db_table_rows.processed_rows or 0 }}</span> / {{ stats.db_table_rows.total_rows or 0 }} processed
+            <span class="processed">{{ clean_stats.db_table_rows.processed_rows or 0 }}</span> / {{ clean_stats.db_table_rows.total_rows or 0 }} processed
         </div>
-        <div id="scan-db-rows-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
-            <span id="scan-db-rows-count">0</span> rows found...
+        <div id="clean-scan-db-rows-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="clean-scan-db-rows-count">0</span> rows found...
         </div>
-        <form id="scan-db-rows-form" action="/project/{{ project.id }}/scan/db-rows" method="post" class="scan-form">
-            <button type="submit" id="scan-db-rows-btn" class="scan-btn" {% if not stats.db_tables.total_tables %}disabled title="Scan tables first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Rows</button>
+        <form id="clean-scan-db-rows-form" action="/project/{{ project.id }}/scan/db-rows?is_dirty=0" method="post" class="scan-form">
+            <button type="submit" id="clean-scan-db-rows-btn" class="scan-btn" {% if not clean_stats.db_tables.total_tables %}disabled title="Scan tables first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Rows</button>
+        </form>
+    </div>
+</div>
+
+<h4 class="section-title">Dirty</h4>
+<div class="stats-grid">
+    <div class="stat-card">
+        <h4>Files</h4>
+        <div class="stat-number" id="dirty-file-count">{{ dirty_stats.files.total_files or 0 }}</div>
+        <div class="stat-label">Total Files</div>
+        <div class="stat-progress">
+            <span class="processed">{{ dirty_stats.files.processed_files or 0 }}</span> / {{ dirty_stats.files.total_files or 0 }} processed
+        </div>
+        <div id="dirty-scan-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="dirty-scan-count">0</span> files found...
+        </div>
+        <form id="dirty-scan-files-form" action="/project/{{ project.id }}/scan/files?is_dirty=1" method="post" class="scan-form">
+            <button type="submit" id="dirty-scan-btn" class="scan-btn">Scan Files</button>
+        </form>
+    </div>
+
+    <div class="stat-card">
+        <h4>Lines of Code</h4>
+        <div class="stat-number" id="dirty-lines-count">{{ dirty_stats.file_rows.total_rows or 0 }}</div>
+        <div class="stat-label">Total Lines</div>
+        <div class="stat-progress">
+            <span class="processed">{{ dirty_stats.file_rows.processed_rows or 0 }}</span> / {{ dirty_stats.file_rows.total_rows or 0 }} processed
+        </div>
+        <div id="dirty-scan-lines-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="dirty-scan-lines-count">0</span> lines found...
+        </div>
+        <form id="dirty-scan-lines-form" action="/project/{{ project.id }}/scan/lines?is_dirty=1" method="post" class="scan-form">
+            <button type="submit" id="dirty-scan-lines-btn" class="scan-btn" {% if not dirty_stats.files.total_files %}disabled title="Scan files first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Lines</button>
+        </form>
+    </div>
+
+    <div class="stat-card">
+        <h4>Database Tables</h4>
+        <div class="stat-number" id="dirty-tables-count">{{ dirty_stats.db_tables.total_tables or 0 }}</div>
+        <div class="stat-label">Total Tables</div>
+        <div class="stat-progress">
+            <span class="processed">{{ dirty_stats.db_tables.processed_tables or 0 }}</span> / {{ dirty_stats.db_tables.total_tables or 0 }} processed
+        </div>
+        <div id="dirty-scan-tables-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="dirty-scan-tables-count">0</span> tables found...
+        </div>
+        <form id="dirty-scan-tables-form" action="/project/{{ project.id }}/scan/tables?is_dirty=1" method="post" class="scan-form">
+            <button type="submit" id="dirty-scan-tables-btn" class="scan-btn" {% if not project.dirty_db %}disabled title="Set Dirty DB in project settings first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Tables</button>
+        </form>
+    </div>
+
+    <div class="stat-card">
+        <h4>Database Rows</h4>
+        <div class="stat-number" id="dirty-db-rows-count">{{ dirty_stats.db_table_rows.total_rows or 0 }}</div>
+        <div class="stat-label">Total Rows</div>
+        <div class="stat-progress">
+            <span class="processed">{{ dirty_stats.db_table_rows.processed_rows or 0 }}</span> / {{ dirty_stats.db_table_rows.total_rows or 0 }} processed
+        </div>
+        <div id="dirty-scan-db-rows-progress" style="display: none; margin: 0.5rem 0; color: var(--accent);">
+            <span id="dirty-scan-db-rows-count">0</span> rows found...
+        </div>
+        <form id="dirty-scan-db-rows-form" action="/project/{{ project.id }}/scan/db-rows?is_dirty=1" method="post" class="scan-form">
+            <button type="submit" id="dirty-scan-db-rows-btn" class="scan-btn" {% if not dirty_stats.db_tables.total_tables %}disabled title="Scan tables first" style="background: #4a5568; color: #718096; cursor: not-allowed;"{% endif %}>Scan Rows</button>
         </form>
     </div>
 </div>
 
 <div class="reset-section">
-    <button type="button" id="reset-btn" class="reset-btn" onclick="resetDatabase()">Reset Files &amp; Lines</button>
+    <button type="button" id="reset-btn" class="reset-btn" onclick="resetDatabase()">Reset All Data</button>
 </div>
 
 {% elif projects %}
@@ -158,201 +222,97 @@ function resetDatabase() {
     var projectId = '{{ project.id }}';
     var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-    // Scan Files WebSocket
-    var filesForm = document.getElementById('scan-files-form');
-    var filesBtn = document.getElementById('scan-btn');
-    var filesProgress = document.getElementById('scan-progress');
-    var filesCountSpan = document.getElementById('scan-count');
-    var fileCount = document.getElementById('file-count');
+    // Helper function to set up a scan WebSocket handler
+    function setupScanHandler(prefix, endpoint, isDirty, buttonText, itemName) {
+        var form = document.getElementById(prefix + '-form');
+        var btn = document.getElementById(prefix.replace('-scan-files', '-scan-btn').replace('-scan-lines', '-scan-lines-btn').replace('-scan-tables', '-scan-tables-btn').replace('-scan-db-rows', '-scan-db-rows-btn'));
 
-    if (filesForm && window.WebSocket) {
-        filesForm.addEventListener('submit', function(e) {
-            e.preventDefault();
+        // Build correct button ID based on prefix
+        var btnId;
+        if (prefix.indexOf('-scan-files') > -1) {
+            btnId = prefix.replace('-scan-files-form', '-scan-btn');
+        } else if (prefix.indexOf('-scan-lines') > -1) {
+            btnId = prefix.replace('-form', '-btn');
+        } else if (prefix.indexOf('-scan-tables') > -1) {
+            btnId = prefix.replace('-form', '-btn');
+        } else if (prefix.indexOf('-scan-db-rows') > -1) {
+            btnId = prefix.replace('-form', '-btn');
+        }
+        btn = document.getElementById(btnId);
 
-            var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/files/ws';
-            var ws = new WebSocket(wsUrl);
+        var progressId = prefix.replace('-form', '-progress').replace('-files-progress', '-progress');
+        var progress = document.getElementById(progressId);
+        var countSpanId = prefix.replace('-form', '-count').replace('-files-count', '-count');
+        var countSpan = document.getElementById(countSpanId);
 
-            ws.onopen = function() {
-                filesBtn.disabled = true;
-                filesBtn.textContent = 'Scanning...';
-                filesProgress.style.display = 'block';
-                filesCountSpan.textContent = '0';
-                fileCount.textContent = '0';
-            };
+        // Build count display ID based on type
+        var type = prefix.split('-')[0]; // 'clean' or 'dirty'
+        var countId;
+        if (prefix.indexOf('-files') > -1) {
+            countId = type + '-file-count';
+        } else if (prefix.indexOf('-lines') > -1) {
+            countId = type + '-lines-count';
+        } else if (prefix.indexOf('-tables') > -1) {
+            countId = type + '-tables-count';
+        } else if (prefix.indexOf('-db-rows') > -1) {
+            countId = type + '-db-rows-count';
+        }
+        var countDisplay = document.getElementById(countId);
 
-            ws.onmessage = function(event) {
-                var data = JSON.parse(event.data);
+        if (form && btn && !btn.disabled && window.WebSocket) {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
 
-                if (data.type === 'progress') {
-                    filesCountSpan.textContent = data.count;
-                    fileCount.textContent = data.count;
-                } else if (data.type === 'done') {
-                    filesCountSpan.textContent = data.total;
-                    fileCount.textContent = data.total;
-                    filesBtn.textContent = 'Done!';
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1000);
-                } else if (data.type === 'error') {
-                    alert('Error: ' + data.message);
-                    filesBtn.disabled = false;
-                    filesBtn.textContent = 'Scan Files';
-                    filesProgress.style.display = 'none';
-                }
-            };
+                var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/' + endpoint + '/ws?is_dirty=' + isDirty;
+                var ws = new WebSocket(wsUrl);
 
-            ws.onerror = function() {
-                filesForm.submit();
-            };
-        });
+                ws.onopen = function() {
+                    btn.disabled = true;
+                    btn.textContent = 'Scanning...';
+                    if (progress) progress.style.display = 'block';
+                    if (countSpan) countSpan.textContent = '0';
+                    if (countDisplay) countDisplay.textContent = '0';
+                };
+
+                ws.onmessage = function(event) {
+                    var data = JSON.parse(event.data);
+
+                    if (data.type === 'progress') {
+                        if (countSpan) countSpan.textContent = data.count;
+                        if (countDisplay) countDisplay.textContent = data.count;
+                    } else if (data.type === 'done') {
+                        if (countSpan) countSpan.textContent = data.total;
+                        if (countDisplay) countDisplay.textContent = data.total;
+                        btn.textContent = 'Done!';
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 1000);
+                    } else if (data.type === 'error') {
+                        alert('Error: ' + data.message);
+                        btn.disabled = false;
+                        btn.textContent = buttonText;
+                        if (progress) progress.style.display = 'none';
+                    }
+                };
+
+                ws.onerror = function() {
+                    form.submit();
+                };
+            });
+        }
     }
 
-    // Scan Lines WebSocket
-    var linesForm = document.getElementById('scan-lines-form');
-    var linesBtn = document.getElementById('scan-lines-btn');
-    var linesProgress = document.getElementById('scan-lines-progress');
-    var linesCountSpan = document.getElementById('scan-lines-count');
-    var linesCount = document.getElementById('lines-count');
+    // Set up handlers for Clean scans
+    setupScanHandler('clean-scan-files-form', 'files', 0, 'Scan Files', 'files');
+    setupScanHandler('clean-scan-lines-form', 'lines', 0, 'Scan Lines', 'lines');
+    setupScanHandler('clean-scan-tables-form', 'tables', 0, 'Scan Tables', 'tables');
+    setupScanHandler('clean-scan-db-rows-form', 'db-rows', 0, 'Scan Rows', 'rows');
 
-    if (linesForm && window.WebSocket) {
-        linesForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-
-            var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/lines/ws';
-            var ws = new WebSocket(wsUrl);
-
-            ws.onopen = function() {
-                linesBtn.disabled = true;
-                linesBtn.textContent = 'Scanning...';
-                linesProgress.style.display = 'block';
-                linesCountSpan.textContent = '0';
-                linesCount.textContent = '0';
-            };
-
-            ws.onmessage = function(event) {
-                var data = JSON.parse(event.data);
-
-                if (data.type === 'progress') {
-                    linesCountSpan.textContent = data.count;
-                    linesCount.textContent = data.count;
-                } else if (data.type === 'done') {
-                    linesCountSpan.textContent = data.total;
-                    linesCount.textContent = data.total;
-                    linesBtn.textContent = 'Done!';
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1000);
-                } else if (data.type === 'error') {
-                    alert('Error: ' + data.message);
-                    linesBtn.disabled = false;
-                    linesBtn.textContent = 'Scan Lines';
-                    linesProgress.style.display = 'none';
-                }
-            };
-
-            ws.onerror = function() {
-                linesForm.submit();
-            };
-        });
-    }
-
-    // Scan Tables WebSocket
-    var tablesForm = document.getElementById('scan-tables-form');
-    var tablesBtn = document.getElementById('scan-tables-btn');
-    var tablesProgress = document.getElementById('scan-tables-progress');
-    var tablesCountSpan = document.getElementById('scan-tables-count');
-    var tablesCount = document.getElementById('tables-count');
-
-    if (tablesForm && tablesBtn && !tablesBtn.disabled && window.WebSocket) {
-        tablesForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-
-            var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/tables/ws';
-            var ws = new WebSocket(wsUrl);
-
-            ws.onopen = function() {
-                tablesBtn.disabled = true;
-                tablesBtn.textContent = 'Scanning...';
-                tablesProgress.style.display = 'block';
-                tablesCountSpan.textContent = '0';
-                tablesCount.textContent = '0';
-            };
-
-            ws.onmessage = function(event) {
-                var data = JSON.parse(event.data);
-
-                if (data.type === 'progress') {
-                    tablesCountSpan.textContent = data.count;
-                    tablesCount.textContent = data.count;
-                } else if (data.type === 'done') {
-                    tablesCountSpan.textContent = data.total;
-                    tablesCount.textContent = data.total;
-                    tablesBtn.textContent = 'Done!';
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1000);
-                } else if (data.type === 'error') {
-                    alert('Error: ' + data.message);
-                    tablesBtn.disabled = false;
-                    tablesBtn.textContent = 'Scan Tables';
-                    tablesProgress.style.display = 'none';
-                }
-            };
-
-            ws.onerror = function() {
-                tablesForm.submit();
-            };
-        });
-    }
-
-    // Scan DB Rows WebSocket
-    var dbRowsForm = document.getElementById('scan-db-rows-form');
-    var dbRowsBtn = document.getElementById('scan-db-rows-btn');
-    var dbRowsProgress = document.getElementById('scan-db-rows-progress');
-    var dbRowsCountSpan = document.getElementById('scan-db-rows-count');
-    var dbRowsCount = document.getElementById('db-rows-count');
-
-    if (dbRowsForm && dbRowsBtn && !dbRowsBtn.disabled && window.WebSocket) {
-        dbRowsForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-
-            var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/db-rows/ws';
-            var ws = new WebSocket(wsUrl);
-
-            ws.onopen = function() {
-                dbRowsBtn.disabled = true;
-                dbRowsBtn.textContent = 'Scanning...';
-                dbRowsProgress.style.display = 'block';
-                dbRowsCountSpan.textContent = '0';
-                dbRowsCount.textContent = '0';
-            };
-
-            ws.onmessage = function(event) {
-                var data = JSON.parse(event.data);
-
-                if (data.type === 'progress') {
-                    dbRowsCountSpan.textContent = data.count;
-                    dbRowsCount.textContent = data.count;
-                } else if (data.type === 'done') {
-                    dbRowsCountSpan.textContent = data.total;
-                    dbRowsCount.textContent = data.total;
-                    dbRowsBtn.textContent = 'Done!';
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1000);
-                } else if (data.type === 'error') {
-                    alert('Error: ' + data.message);
-                    dbRowsBtn.disabled = false;
-                    dbRowsBtn.textContent = 'Scan Rows';
-                    dbRowsProgress.style.display = 'none';
-                }
-            };
-
-            ws.onerror = function() {
-                dbRowsForm.submit();
-            };
-        });
-    }
+    // Set up handlers for Dirty scans
+    setupScanHandler('dirty-scan-files-form', 'files', 1, 'Scan Files', 'files');
+    setupScanHandler('dirty-scan-lines-form', 'lines', 1, 'Scan Lines', 'lines');
+    setupScanHandler('dirty-scan-tables-form', 'tables', 1, 'Scan Tables', 'tables');
+    setupScanHandler('dirty-scan-db-rows-form', 'db-rows', 1, 'Scan Rows', 'rows');
 })();
 </script>
 {% endif %}

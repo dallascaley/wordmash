@@ -380,3 +380,10 @@ h2 .ws-status {
     background: #5a6578;
     color: var(--text-light);
 }
+
+.section-title {
+    color: var(--accent);
+    margin: 25px 0 10px 0;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+}
