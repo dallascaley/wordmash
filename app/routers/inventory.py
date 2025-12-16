@@ -23,11 +23,23 @@ def reset_project_data(project_id: int):
         # Delete files for this project
         cursor.execute("DELETE FROM files WHERE project_id = %s", (project_id,))
 
+        # Delete db_table_rows for this project's tables
+        cursor.execute("""
+            DELETE dtr FROM db_table_rows dtr
+            JOIN db_tables dt ON dtr.table_id = dt.id
+            WHERE dt.project_id = %s
+        """, (project_id,))
+
+        # Delete db_tables for this project
+        cursor.execute("DELETE FROM db_tables WHERE project_id = %s", (project_id,))
+
         conn.commit()
 
         # Reset auto-increment (set to 1, MySQL will use next available)
         cursor.execute("ALTER TABLE file_rows AUTO_INCREMENT = 1")
         cursor.execute("ALTER TABLE files AUTO_INCREMENT = 1")
+        cursor.execute("ALTER TABLE db_table_rows AUTO_INCREMENT = 1")
+        cursor.execute("ALTER TABLE db_tables AUTO_INCREMENT = 1")
 
         cursor.close()
         conn.close()
