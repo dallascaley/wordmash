@@ -2,24 +2,33 @@
 {% block content %}
 <h2>Training</h2>
 
-<form action="/training" method="get" class="project-selector">
-    <label>Select Project:
-        <select name="project_id" onchange="this.form.submit()">
-            <option value="">-- Choose a project --</option>
-            {% for p in projects %}
-            <option value="{{ p.id }}" {% if project and project.id == p.id %}selected{% endif %}>{{ p.name }}</option>
-            {% endfor %}
-        </select>
-    </label>
+<div class="training-controls">
+    <div class="auto-train-group">
+        <button type="button" id="auto-train-btn" class="auto-train-btn">Auto Train</button>
+        <span class="completion-status">Completion %: <span id="completion-pct">0</span></span>
+    </div>
 
-    <label style="margin-left: 1rem;">Data Type:
-        <select name="data_type" onchange="this.form.submit()">
-            {% for dt in data_types %}
-            <option value="{{ dt.value }}" {% if selected_data_type == dt.value %}selected{% endif %}>{{ dt.label }}</option>
-            {% endfor %}
-        </select>
-    </label>
-</form>
+    <div class="training-divider"></div>
+
+    <form action="/training" method="get" class="training-selectors">
+        <label>Select Project:
+            <select name="project_id" onchange="this.form.submit()">
+                <option value="">-- Choose a project --</option>
+                {% for p in projects %}
+                <option value="{{ p.id }}" {% if project and project.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label>Data Type:
+            <select name="data_type" onchange="this.form.submit()">
+                {% for dt in data_types %}
+                <option value="{{ dt.value }}" {% if selected_data_type == dt.value %}selected{% endif %}>{{ dt.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </form>
+</div>
 
 {% if project %}
 <h3>{{ project.name }}</h3>
