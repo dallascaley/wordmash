@@ -33,6 +33,9 @@ def reset_project_data(project_id: int):
         # Delete db_tables for this project
         cursor.execute("DELETE FROM db_tables WHERE project_id = %s", (project_id,))
 
+        # Clear inventory cache for this project
+        cursor.execute("DELETE FROM inventory WHERE project_id = %s", (project_id,))
+
         conn.commit()
 
         # Reset auto-increment (set to 1, MySQL will use next available)
@@ -40,6 +43,7 @@ def reset_project_data(project_id: int):
         cursor.execute("ALTER TABLE files AUTO_INCREMENT = 1")
         cursor.execute("ALTER TABLE db_table_rows AUTO_INCREMENT = 1")
         cursor.execute("ALTER TABLE db_tables AUTO_INCREMENT = 1")
+        cursor.execute("ALTER TABLE inventory AUTO_INCREMENT = 1")
 
         cursor.close()
         conn.close()
@@ -50,49 +54,30 @@ def reset_project_data(project_id: int):
 
 
 def get_stats_for_type(cursor, project_id: int, is_dirty: int):
-    """Get stats for either clean (is_dirty=0) or dirty (is_dirty=1) data."""
+    """Get stats for either clean (is_dirty=0) or dirty (is_dirty=1) data from cached inventory table."""
     cursor.execute("""
-        SELECT
-            COUNT(*) as total_files,
-            SUM(CASE WHEN processed = 1 THEN 1 ELSE 0 END) as processed_files
-        FROM files WHERE project_id = %s AND is_dirty = %s
+        SELECT files_count, files_processed, file_rows_count, file_rows_processed,
+               db_tables_count, db_tables_processed, db_table_rows_count, db_table_rows_processed
+        FROM inventory
+        WHERE project_id = %s AND is_dirty = %s
     """, (project_id, is_dirty))
-    file_stats = cursor.fetchone()
+    row = cursor.fetchone()
 
-    cursor.execute("""
-        SELECT
-            COUNT(*) as total_rows,
-            SUM(CASE WHEN fr.processed = 1 THEN 1 ELSE 0 END) as processed_rows
-        FROM file_rows fr
-        JOIN files f ON fr.file_id = f.id
-        WHERE f.project_id = %s AND f.is_dirty = %s
-    """, (project_id, is_dirty))
-    row_stats = cursor.fetchone()
-
-    cursor.execute("""
-        SELECT
-            COUNT(*) as total_tables,
-            SUM(CASE WHEN processed = 1 THEN 1 ELSE 0 END) as processed_tables
-        FROM db_tables WHERE project_id = %s AND is_dirty = %s
-    """, (project_id, is_dirty))
-    table_stats = cursor.fetchone()
-
-    cursor.execute("""
-        SELECT
-            COUNT(*) as total_rows,
-            SUM(CASE WHEN dtr.processed = 1 THEN 1 ELSE 0 END) as processed_rows
-        FROM db_table_rows dtr
-        JOIN db_tables dt ON dtr.table_id = dt.id
-        WHERE dt.project_id = %s AND dt.is_dirty = %s
-    """, (project_id, is_dirty))
-    db_row_stats = cursor.fetchone()
-
-    return {
-        "files": file_stats,
-        "file_rows": row_stats,
-        "db_tables": table_stats,
-        "db_table_rows": db_row_stats
-    }
+    if row:
+        return {
+            "files": {"total_files": row["files_count"], "processed_files": row["files_processed"]},
+            "file_rows": {"total_rows": row["file_rows_count"], "processed_rows": row["file_rows_processed"]},
+            "db_tables": {"total_tables": row["db_tables_count"], "processed_tables": row["db_tables_processed"]},
+            "db_table_rows": {"total_rows": row["db_table_rows_count"], "processed_rows": row["db_table_rows_processed"]}
+        }
+    else:
+        # Return zeros if no inventory record exists yet
+        return {
+            "files": {"total_files": 0, "processed_files": 0},
+            "file_rows": {"total_rows": 0, "processed_rows": 0},
+            "db_tables": {"total_tables": 0, "processed_tables": 0},
+            "db_table_rows": {"total_rows": 0, "processed_rows": 0}
+        }
 
 
 @router.get("/inventory")

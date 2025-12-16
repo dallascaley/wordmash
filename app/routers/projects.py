@@ -9,6 +9,28 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 
+def update_inventory_counts(cursor, conn, project_id: int, is_dirty: int, count_type: str, count: int):
+    """
+    Update the cached inventory counts for a project.
+    count_type should be one of: 'files', 'file_rows', 'db_tables', 'db_table_rows'
+    """
+    column = f"{count_type}_count"
+
+    # Ensure inventory row exists for this project/is_dirty combination
+    cursor.execute("""
+        INSERT INTO inventory (project_id, is_dirty)
+        VALUES (%s, %s)
+        ON DUPLICATE KEY UPDATE project_id = project_id
+    """, (project_id, is_dirty))
+
+    # Update the specific count
+    cursor.execute(f"""
+        UPDATE inventory SET {column} = %s
+        WHERE project_id = %s AND is_dirty = %s
+    """, (count, project_id, is_dirty))
+    conn.commit()
+
+
 @router.get("/projects")
 def projects(request: Request):
     conn = get_conn()
@@ -231,6 +253,9 @@ def scan_files(request: Request, project_id: int, is_dirty: int = 1):
         )
         conn.commit()
 
+    # Update inventory cache
+    update_inventory_counts(cursor, conn, project_id, is_dirty, 'files', len(files_to_insert))
+
     cursor.close()
     conn.close()
 
@@ -282,6 +307,9 @@ async def scan_files_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1
                 batch
             )
             conn.commit()
+
+        # Update inventory cache
+        update_inventory_counts(cursor, conn, project_id, is_dirty, 'files', len(files_to_insert))
 
         # Send completion
         await websocket.send_json({"type": "done", "total": len(files_to_insert)})
@@ -367,6 +395,7 @@ def scan_lines(request: Request, project_id: int, is_dirty: int = 1):
     conn.commit()
 
     # Use the same generator as WebSocket endpoint
+    inserted_lines = 0
     for update in scan_lines_generator(files, root_path, is_dirty):
         if update["type"] == "batch":
             try:
@@ -375,8 +404,12 @@ def scan_lines(request: Request, project_id: int, is_dirty: int = 1):
                     update["rows"]
                 )
                 conn.commit()
+                inserted_lines += len(update["rows"])
             except Exception:
                 conn.rollback()
+
+    # Update inventory cache with actual inserted count
+    update_inventory_counts(cursor, conn, project_id, is_dirty, 'file_rows', inserted_lines)
 
     cursor.close()
     conn.close()
@@ -422,6 +455,7 @@ async def scan_lines_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1
 
         # Scan lines inline to properly yield control to event loop
         total_count = 0
+        inserted_count = 0
         batch = []
         batch_size = 1000
 
@@ -450,6 +484,7 @@ async def scan_lines_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1
                                     batch
                                 )
                                 conn.commit()
+                                inserted_count += len(batch)
                             except Exception:
                                 conn.rollback()
                             batch = []
@@ -466,11 +501,15 @@ async def scan_lines_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1
                     batch
                 )
                 conn.commit()
+                inserted_count += len(batch)
             except Exception:
                 conn.rollback()
 
-        # Send completion
-        await websocket.send_json({"type": "done", "total": total_count})
+        # Update inventory cache with actual inserted count
+        update_inventory_counts(cursor, conn, project_id, is_dirty, 'file_rows', inserted_count)
+
+        # Send completion with inserted count
+        await websocket.send_json({"type": "done", "total": inserted_count})
 
     except WebSocketDisconnect:
         pass
@@ -516,6 +555,7 @@ def scan_tables(request: Request, project_id: int, is_dirty: int = 1):
     cursor.execute("DELETE FROM db_tables WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
     conn.commit()
 
+    table_count = 0
     try:
         # Connect to database and get tables
         ext_conn = get_external_db_conn(db_name)
@@ -532,9 +572,13 @@ def scan_tables(request: Request, project_id: int, is_dirty: int = 1):
                 "INSERT INTO db_tables (table_name, project_id, is_dirty) VALUES (%s, %s, %s)",
                 (table_name, project_id, is_dirty)
             )
+            table_count += 1
         conn.commit()
     except Exception as e:
         pass
+
+    # Update inventory cache
+    update_inventory_counts(cursor, conn, project_id, is_dirty, 'db_tables', table_count)
 
     cursor.close()
     conn.close()
@@ -586,6 +630,10 @@ async def scan_tables_ws(websocket: WebSocket, project_id: int, is_dirty: int = 
             await websocket.send_json({"type": "progress", "count": count})
 
         conn.commit()
+
+        # Update inventory cache
+        update_inventory_counts(cursor, conn, project_id, is_dirty, 'db_tables', count)
+
         await websocket.send_json({"type": "done", "total": count})
 
     except WebSocketDisconnect:
@@ -666,6 +714,9 @@ def scan_db_rows(request: Request, project_id: int, is_dirty: int = 1):
                 batch
             )
             conn.commit()
+
+        # Update inventory cache
+        update_inventory_counts(cursor, conn, project_id, is_dirty, 'db_table_rows', len(rows_to_insert))
 
     except Exception:
         pass
@@ -758,6 +809,9 @@ async def scan_db_rows_ws(websocket: WebSocket, project_id: int, is_dirty: int =
                 batch
             )
             conn.commit()
+
+        # Update inventory cache
+        update_inventory_counts(cursor, conn, project_id, is_dirty, 'db_table_rows', total_count)
 
         await websocket.send_json({"type": "done", "total": total_count})
 
