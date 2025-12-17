@@ -222,36 +222,178 @@ function resetDatabase() {
     var projectId = '{{ project.id }}';
     var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-    // Helper function to set up a scan WebSocket handler
-    function setupScanHandler(prefix, endpoint, isDirty, buttonText, itemName) {
-        var form = document.getElementById(prefix + '-form');
-        var btn = document.getElementById(prefix.replace('-scan-files', '-scan-btn').replace('-scan-lines', '-scan-lines-btn').replace('-scan-tables', '-scan-tables-btn').replace('-scan-db-rows', '-scan-db-rows-btn'));
+    // Job-based lines scan handler
+    function setupJobBasedLinesScan(isDirty) {
+        var prefix = isDirty ? 'dirty' : 'clean';
+        var form = document.getElementById(prefix + '-scan-lines-form');
+        var btn = document.getElementById(prefix + '-scan-lines-btn');
+        var progress = document.getElementById(prefix + '-scan-lines-progress');
+        var countSpan = document.getElementById(prefix + '-scan-lines-count');
+        var countDisplay = document.getElementById(prefix + '-lines-count');
+        var jobType = 'scan_lines_' + isDirty;
 
-        // Build correct button ID based on prefix
+        if (!form || !btn || btn.disabled || !window.WebSocket) return;
+
+        // Function to observe a job via WebSocket
+        function observeJob(jobId) {
+            var wsUrl = protocol + '//' + window.location.host + '/job/' + jobId + '/ws';
+            var ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                btn.disabled = true;
+                btn.textContent = 'Scanning...';
+                if (progress) progress.style.display = 'block';
+            };
+
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.type === 'update') {
+                    if (countSpan) countSpan.textContent = data.progress || 0;
+                    if (countDisplay) countDisplay.textContent = data.progress || 0;
+                    if (data.message) {
+                        btn.textContent = data.message.length > 20 ? data.message.substring(0, 20) + '...' : data.message;
+                    }
+                } else if (data.type === 'done') {
+                    if (countSpan) countSpan.textContent = data.total || 0;
+                    if (countDisplay) countDisplay.textContent = data.total || 0;
+                    if (data.status === 'completed') {
+                        btn.textContent = 'Done!';
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else if (data.status === 'failed') {
+                        alert('Error: ' + (data.error_details || data.message || 'Job failed'));
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Lines';
+                        if (progress) progress.style.display = 'none';
+                    } else if (data.status === 'cancelled') {
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Lines';
+                        if (progress) progress.style.display = 'none';
+                    }
+                } else if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Lines';
+                    if (progress) progress.style.display = 'none';
+                }
+            };
+
+            ws.onerror = function() {
+                // Fall back to polling if WebSocket fails
+                pollJobStatus(jobId);
+            };
+
+            ws.onclose = function(event) {
+                // If closed unexpectedly and job might still be running, try to reconnect
+                if (!event.wasClean && btn.disabled) {
+                    setTimeout(function() {
+                        checkAndReconnect();
+                    }, 2000);
+                }
+            };
+        }
+
+        // Polling fallback
+        function pollJobStatus(jobId) {
+            fetch('/job/' + jobId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'running' || data.status === 'pending') {
+                        if (countSpan) countSpan.textContent = data.progress || 0;
+                        if (countDisplay) countDisplay.textContent = data.progress || 0;
+                        setTimeout(function() { pollJobStatus(jobId); }, 1000);
+                    } else if (data.status === 'completed') {
+                        if (countDisplay) countDisplay.textContent = data.total || data.progress || 0;
+                        btn.textContent = 'Done!';
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Lines';
+                        if (progress) progress.style.display = 'none';
+                    }
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Lines';
+                    if (progress) progress.style.display = 'none';
+                });
+        }
+
+        // Check for existing running job and reconnect
+        function checkAndReconnect() {
+            fetch('/project/' + projectId + '/job/' + jobType)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'running' || data.status === 'pending') {
+                        // Job is still running, reconnect
+                        if (countSpan) countSpan.textContent = data.progress || 0;
+                        if (countDisplay) countDisplay.textContent = data.progress || 0;
+                        observeJob(data.id);
+                    }
+                })
+                .catch(function() {
+                    // No running job found
+                });
+        }
+
+        // Form submit handler - start a new job
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+
+            fetch('/project/' + projectId + '/scan/lines/start?is_dirty=' + isDirty, {
+                method: 'POST'
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Lines';
+                    return;
+                }
+
+                if (progress) progress.style.display = 'block';
+                if (countSpan) countSpan.textContent = '0';
+
+                // Connect to job observer
+                observeJob(data.job_id);
+            })
+            .catch(function(err) {
+                alert('Error starting scan: ' + err);
+                btn.disabled = false;
+                btn.textContent = 'Scan Lines';
+            });
+        });
+
+        // On page load, check for running jobs
+        checkAndReconnect();
+    }
+
+    // Legacy WebSocket handler for other scan types (files, tables, db-rows)
+    function setupLegacyScanHandler(prefix, endpoint, isDirty, buttonText, itemName) {
+        var form = document.getElementById(prefix + '-form');
         var btnId;
         if (prefix.indexOf('-scan-files') > -1) {
             btnId = prefix.replace('-scan-files-form', '-scan-btn');
-        } else if (prefix.indexOf('-scan-lines') > -1) {
-            btnId = prefix.replace('-form', '-btn');
         } else if (prefix.indexOf('-scan-tables') > -1) {
             btnId = prefix.replace('-form', '-btn');
         } else if (prefix.indexOf('-scan-db-rows') > -1) {
             btnId = prefix.replace('-form', '-btn');
         }
-        btn = document.getElementById(btnId);
+        var btn = document.getElementById(btnId);
 
         var progressId = prefix.replace('-form', '-progress').replace('-files-progress', '-progress');
         var progress = document.getElementById(progressId);
         var countSpanId = prefix.replace('-form', '-count').replace('-files-count', '-count');
         var countSpan = document.getElementById(countSpanId);
 
-        // Build count display ID based on type
-        var type = prefix.split('-')[0]; // 'clean' or 'dirty'
+        var type = prefix.split('-')[0];
         var countId;
         if (prefix.indexOf('-files') > -1) {
             countId = type + '-file-count';
-        } else if (prefix.indexOf('-lines') > -1) {
-            countId = type + '-lines-count';
         } else if (prefix.indexOf('-tables') > -1) {
             countId = type + '-tables-count';
         } else if (prefix.indexOf('-db-rows') > -1) {
@@ -302,17 +444,18 @@ function resetDatabase() {
         }
     }
 
-    // Set up handlers for Clean scans
-    setupScanHandler('clean-scan-files-form', 'files', 0, 'Scan Files', 'files');
-    setupScanHandler('clean-scan-lines-form', 'lines', 0, 'Scan Lines', 'lines');
-    setupScanHandler('clean-scan-tables-form', 'tables', 0, 'Scan Tables', 'tables');
-    setupScanHandler('clean-scan-db-rows-form', 'db-rows', 0, 'Scan Rows', 'rows');
+    // Set up job-based handlers for lines scans
+    setupJobBasedLinesScan(0); // Clean
+    setupJobBasedLinesScan(1); // Dirty
 
-    // Set up handlers for Dirty scans
-    setupScanHandler('dirty-scan-files-form', 'files', 1, 'Scan Files', 'files');
-    setupScanHandler('dirty-scan-lines-form', 'lines', 1, 'Scan Lines', 'lines');
-    setupScanHandler('dirty-scan-tables-form', 'tables', 1, 'Scan Tables', 'tables');
-    setupScanHandler('dirty-scan-db-rows-form', 'db-rows', 1, 'Scan Rows', 'rows');
+    // Set up legacy handlers for other scan types (files, tables, db-rows)
+    setupLegacyScanHandler('clean-scan-files-form', 'files', 0, 'Scan Files', 'files');
+    setupLegacyScanHandler('clean-scan-tables-form', 'tables', 0, 'Scan Tables', 'tables');
+    setupLegacyScanHandler('clean-scan-db-rows-form', 'db-rows', 0, 'Scan Rows', 'rows');
+
+    setupLegacyScanHandler('dirty-scan-files-form', 'files', 1, 'Scan Files', 'files');
+    setupLegacyScanHandler('dirty-scan-tables-form', 'tables', 1, 'Scan Tables', 'tables');
+    setupLegacyScanHandler('dirty-scan-db-rows-form', 'db-rows', 1, 'Scan Rows', 'rows');
 })();
 </script>
 {% endif %}

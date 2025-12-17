@@ -1,8 +1,13 @@
 from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from app.db import get_conn
+from app.jobs import (
+    create_job, update_job, get_job, get_running_job,
+    start_job, complete_job, fail_job, run_job_in_background
+)
 from datetime import datetime
+import asyncio
 import os
 
 router = APIRouter()
@@ -262,44 +267,41 @@ def scan_files(request: Request, project_id: int, is_dirty: int = 1):
     return RedirectResponse(url=f"/inventory?project_id={project_id}", status_code=303)
 
 
-@router.websocket("/project/{project_id}/scan/files/ws")
-async def scan_files_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1):
-    await websocket.accept()
-
+async def scan_files_background_task(job_id: int, project_id: int, root_path: str, is_dirty: int):
+    """
+    Background task that scans files and updates the jobs table with progress.
+    """
     conn = None
     cursor = None
     try:
+        start_job(job_id)
+
         conn = get_conn()
         cursor = conn.cursor()
-
-        cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
-        project = cursor.fetchone()
-
-        if not project:
-            await websocket.send_json({"type": "error", "message": "Project not found"})
-            await websocket.close()
-            return
-
-        root_path = project["dirty_root"] if is_dirty else project["clean_root"]
 
         # Clear existing files for this is_dirty type only
         cursor.execute("DELETE FROM files WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
         conn.commit()
 
-        # Send start message
-        await websocket.send_json({"type": "started"})
-
-        # Scan files and send progress
+        # Scan files and collect them
         files_to_insert = []
+        count = 0
+
         for update in scan_files_generator(project_id, root_path, is_dirty):
             if update["type"] == "progress":
-                await websocket.send_json(update)
+                count = update["count"]
+                update_job(job_id, progress=count, message=f"Scanning: {count} files found")
+                await asyncio.sleep(0)  # Yield to event loop
             elif update["type"] == "complete":
                 files_to_insert = update["files"]
-                await websocket.send_json({"type": "progress", "count": update["count"]})
+                count = update["count"]
+
+        # Update job to show we're inserting
+        update_job(job_id, progress=count, total=count, message=f"Inserting {count} files into database...")
 
         # Batch insert
         batch_size = 500
+        inserted = 0
         for i in range(0, len(files_to_insert), batch_size):
             batch = files_to_insert[i:i+batch_size]
             cursor.executemany(
@@ -307,25 +309,180 @@ async def scan_files_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1
                 batch
             )
             conn.commit()
+            inserted += len(batch)
+            update_job(job_id, message=f"Inserted {inserted}/{count} files")
+            await asyncio.sleep(0)
 
         # Update inventory cache
         update_inventory_counts(cursor, conn, project_id, is_dirty, 'files', len(files_to_insert))
 
-        # Send completion
-        await websocket.send_json({"type": "done", "total": len(files_to_insert)})
+        # Mark job complete
+        complete_job(job_id, total=len(files_to_insert), message=f"Completed: {len(files_to_insert)} files scanned")
 
-    except WebSocketDisconnect:
-        pass
+    except asyncio.CancelledError:
+        raise  # Let the wrapper handle cancellation
     except Exception as e:
-        try:
-            await websocket.send_json({"type": "error", "message": str(e)})
-        except:
-            pass
+        fail_job(job_id, str(e))
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
+
+
+@router.post("/project/{project_id}/scan/files/start")
+async def start_scan_files(project_id: int, is_dirty: int = 1):
+    """
+    Start a file scan job. Returns the job_id for tracking progress.
+    If a scan is already running, returns the existing job_id.
+    """
+    # Check for existing running job
+    job_type = f"scan_files_{is_dirty}"
+    existing_job = get_running_job(job_type, project_id)
+    if existing_job:
+        return JSONResponse({
+            "job_id": existing_job["id"],
+            "status": existing_job["status"],
+            "message": "Job already running",
+            "existing": True
+        })
+
+    # Get project info
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    root_path = project["dirty_root"] if is_dirty else project["clean_root"]
+
+    # Create the job
+    job_id = create_job(job_type, project_id, message="Starting file scan...")
+
+    # Start background task
+    run_job_in_background(
+        job_id,
+        scan_files_background_task(job_id, project_id, root_path, is_dirty)
+    )
+
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "pending",
+        "message": "Job started",
+        "existing": False
+    })
+
+
+@router.get("/job/{job_id}")
+def get_job_status(job_id: int):
+    """Get the current status of a job."""
+    job = get_job(job_id)
+    if not job:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+
+    # Convert datetime objects to strings for JSON serialization
+    result = dict(job)
+    for key in ['created_at', 'started_at', 'ended_at']:
+        if result.get(key):
+            result[key] = result[key].isoformat()
+
+    return JSONResponse(result)
+
+
+@router.get("/project/{project_id}/job/{job_type}")
+def get_project_job(project_id: int, job_type: str):
+    """Get a running or recent job for a project and job type."""
+    # First check for running job
+    job = get_running_job(job_type, project_id)
+
+    if not job:
+        # Get most recent completed job
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT * FROM jobs
+               WHERE job_type = %s AND project_id = %s
+               ORDER BY created_at DESC LIMIT 1""",
+            (job_type, project_id)
+        )
+        job = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+    if not job:
+        return JSONResponse({"error": "No job found"}, status_code=404)
+
+    result = dict(job)
+    for key in ['created_at', 'started_at', 'ended_at']:
+        if result.get(key):
+            result[key] = result[key].isoformat()
+
+    return JSONResponse(result)
+
+
+@router.websocket("/job/{job_id}/ws")
+async def job_observer_ws(websocket: WebSocket, job_id: int):
+    """
+    WebSocket endpoint to observe job progress.
+    Polls the jobs table and sends updates to the client.
+    Clients can reconnect at any time to get current status.
+    """
+    await websocket.accept()
+
+    try:
+        last_progress = -1
+        last_status = None
+
+        while True:
+            job = get_job(job_id)
+
+            if not job:
+                await websocket.send_json({"type": "error", "message": "Job not found"})
+                break
+
+            # Send update if something changed
+            if job["progress"] != last_progress or job["status"] != last_status:
+                last_progress = job["progress"]
+                last_status = job["status"]
+
+                # Convert datetime objects for JSON
+                response = {
+                    "type": "update",
+                    "job_id": job["id"],
+                    "status": job["status"],
+                    "progress": job["progress"],
+                    "total": job["total"],
+                    "message": job["message"],
+                    "error_details": job["error_details"]
+                }
+
+                await websocket.send_json(response)
+
+                # If job is done (completed, failed, or cancelled), send final message and close
+                if job["status"] in ('completed', 'failed', 'cancelled'):
+                    await websocket.send_json({
+                        "type": "done",
+                        "status": job["status"],
+                        "total": job["total"] or job["progress"],
+                        "message": job["message"],
+                        "error_details": job["error_details"]
+                    })
+                    break
+
+            # Poll interval
+            await asyncio.sleep(0.5)
+
+    except WebSocketDisconnect:
+        pass  # Client disconnected, that's fine
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
 
 
 def scan_lines_generator(files: list, root_path: str, is_dirty: int, batch_size: int = 1000):
@@ -523,6 +680,157 @@ async def scan_lines_ws(websocket: WebSocket, project_id: int, is_dirty: int = 1
             cursor.close()
         if conn:
             conn.close()
+
+
+async def scan_lines_background_task(job_id: int, project_id: int, root_path: str, is_dirty: int):
+    """
+    Background task that scans file lines and updates the jobs table with progress.
+    """
+    conn = None
+    cursor = None
+    try:
+        start_job(job_id)
+
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        # Get files to scan
+        cursor.execute("SELECT id, file_name, path FROM files WHERE project_id = %s AND is_binary = FALSE AND is_dirty = %s", (project_id, is_dirty))
+        files = cursor.fetchall()
+
+        if not files:
+            complete_job(job_id, total=0, message="No files to scan")
+            return
+
+        # Clear existing lines for this is_dirty type
+        cursor.execute("""
+            DELETE fr FROM file_rows fr
+            JOIN files f ON fr.file_id = f.id
+            WHERE f.project_id = %s AND f.is_dirty = %s
+        """, (project_id, is_dirty))
+        conn.commit()
+
+        update_job(job_id, message=f"Scanning {len(files)} files...")
+
+        # Scan lines
+        total_count = 0
+        inserted_count = 0
+        batch = []
+        batch_size = 1000
+        last_update = 0
+
+        for file_record in files:
+            file_id = file_record["id"]
+            file_name = file_record["file_name"]
+            path = file_record["path"]
+
+            if path:
+                full_path = os.path.join(root_path, path, file_name)
+            else:
+                full_path = os.path.join(root_path, file_name)
+
+            try:
+                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        clean_line = line.rstrip('\n\r')
+                        clean_line = clean_line.encode('utf-8', errors='ignore').decode('utf-8')
+                        total_count += 1
+                        batch.append((clean_line, file_id, is_dirty))
+
+                        if len(batch) >= batch_size:
+                            try:
+                                cursor.executemany(
+                                    "INSERT INTO file_rows (text, file_id, is_dirty) VALUES (%s, %s, %s)",
+                                    batch
+                                )
+                                conn.commit()
+                                inserted_count += len(batch)
+                            except Exception:
+                                conn.rollback()
+                            batch = []
+
+                            # Update job progress every batch
+                            if total_count - last_update >= 5000:
+                                update_job(job_id, progress=inserted_count, message=f"Scanned {inserted_count} lines...")
+                                last_update = total_count
+                                await asyncio.sleep(0)
+            except (IOError, OSError):
+                pass
+
+        # Insert remaining batch
+        if batch:
+            try:
+                cursor.executemany(
+                    "INSERT INTO file_rows (text, file_id, is_dirty) VALUES (%s, %s, %s)",
+                    batch
+                )
+                conn.commit()
+                inserted_count += len(batch)
+            except Exception:
+                conn.rollback()
+
+        # Update inventory cache with actual inserted count
+        update_inventory_counts(cursor, conn, project_id, is_dirty, 'file_rows', inserted_count)
+
+        # Mark job complete
+        complete_job(job_id, total=inserted_count, message=f"Completed: {inserted_count} lines scanned")
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        fail_job(job_id, str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@router.post("/project/{project_id}/scan/lines/start")
+async def start_scan_lines(project_id: int, is_dirty: int = 1):
+    """
+    Start a lines scan job. Returns the job_id for tracking progress.
+    If a scan is already running, returns the existing job_id.
+    """
+    # Check for existing running job
+    job_type = f"scan_lines_{is_dirty}"
+    existing_job = get_running_job(job_type, project_id)
+    if existing_job:
+        return JSONResponse({
+            "job_id": existing_job["id"],
+            "status": existing_job["status"],
+            "message": "Job already running",
+            "existing": True
+        })
+
+    # Get project info
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    root_path = project["dirty_root"] if is_dirty else project["clean_root"]
+
+    # Create the job
+    job_id = create_job(job_type, project_id, message="Starting lines scan...")
+
+    # Start background task
+    run_job_in_background(
+        job_id,
+        scan_lines_background_task(job_id, project_id, root_path, is_dirty)
+    )
+
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "pending",
+        "message": "Job started",
+        "existing": False
+    })
 
 
 def get_external_db_conn(db_name: str):
