@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from app.db import get_conn
+import asyncio
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -40,3 +41,64 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
             "selected_data_type": data_type,
         }
     )
+
+
+@router.websocket("/project/{project_id}/auto-train/ws")
+async def auto_train_ws(websocket: WebSocket, project_id: int):
+    await websocket.accept()
+
+    try:
+        # Mock data - 5 updates, 1 second apart
+        mock_updates = [
+            {
+                "files": {"processed": 100, "matched": 10},
+                "lines": {"processed": 0, "matched": 0},
+                "tables": {"processed": 0, "matched": 0},
+                "rows": {"processed": 0, "matched": 0},
+            },
+            {
+                "files": {"processed": 250, "matched": 25},
+                "lines": {"processed": 1000, "matched": 50},
+                "tables": {"processed": 0, "matched": 0},
+                "rows": {"processed": 0, "matched": 0},
+            },
+            {
+                "files": {"processed": 500, "matched": 45},
+                "lines": {"processed": 5000, "matched": 200},
+                "tables": {"processed": 5, "matched": 2},
+                "rows": {"processed": 0, "matched": 0},
+            },
+            {
+                "files": {"processed": 750, "matched": 60},
+                "lines": {"processed": 10000, "matched": 400},
+                "tables": {"processed": 10, "matched": 4},
+                "rows": {"processed": 500, "matched": 20},
+            },
+            {
+                "files": {"processed": 1000, "matched": 80},
+                "lines": {"processed": 15000, "matched": 600},
+                "tables": {"processed": 12, "matched": 5},
+                "rows": {"processed": 1200, "matched": 50},
+            },
+        ]
+
+        await websocket.send_json({"type": "started"})
+
+        for i, update in enumerate(mock_updates):
+            await asyncio.sleep(1)
+            await websocket.send_json({
+                "type": "progress",
+                "data": update,
+                "step": i + 1,
+                "total_steps": len(mock_updates)
+            })
+
+        await websocket.send_json({"type": "done"})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass

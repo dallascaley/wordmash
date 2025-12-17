@@ -32,9 +32,134 @@
 
 {% if project %}
 <h3>{{ project.name }}</h3>
-<p>Selected data type: <strong>{{ selected_data_type }}</strong></p>
 
-<!-- Training content will go here -->
+<div class="training-progress">
+    <div class="progress-grid">
+        <div class="progress-card">
+            <h4>Files</h4>
+            <div class="progress-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Processed:</span>
+                    <span class="stat-value" id="files-processed">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Matched:</span>
+                    <span class="stat-value" id="files-matched">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="progress-card">
+            <h4>Lines of Code</h4>
+            <div class="progress-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Processed:</span>
+                    <span class="stat-value" id="lines-processed">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Matched:</span>
+                    <span class="stat-value" id="lines-matched">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="progress-card">
+            <h4>Database Tables</h4>
+            <div class="progress-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Processed:</span>
+                    <span class="stat-value" id="tables-processed">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Matched:</span>
+                    <span class="stat-value" id="tables-matched">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="progress-card">
+            <h4>Database Rows</h4>
+            <div class="progress-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Processed:</span>
+                    <span class="stat-value" id="rows-processed">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Matched:</span>
+                    <span class="stat-value" id="rows-matched">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var projectId = '{{ project.id }}';
+    var btn = document.getElementById('auto-train-btn');
+    var completionPct = document.getElementById('completion-pct');
+
+    btn.addEventListener('click', function() {
+        if (!projectId) {
+            alert('Please select a project first');
+            return;
+        }
+
+        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/auto-train/ws';
+        var ws = new WebSocket(wsUrl);
+
+        ws.onopen = function() {
+            btn.disabled = true;
+            btn.textContent = 'Training...';
+        };
+
+        ws.onmessage = function(event) {
+            var msg = JSON.parse(event.data);
+
+            if (msg.type === 'progress') {
+                var data = msg.data;
+
+                // Update files
+                document.getElementById('files-processed').textContent = data.files.processed;
+                document.getElementById('files-matched').textContent = data.files.matched;
+
+                // Update lines
+                document.getElementById('lines-processed').textContent = data.lines.processed;
+                document.getElementById('lines-matched').textContent = data.lines.matched;
+
+                // Update tables
+                document.getElementById('tables-processed').textContent = data.tables.processed;
+                document.getElementById('tables-matched').textContent = data.tables.matched;
+
+                // Update rows
+                document.getElementById('rows-processed').textContent = data.rows.processed;
+                document.getElementById('rows-matched').textContent = data.rows.matched;
+
+                // Update completion percentage
+                var pct = Math.round((msg.step / msg.total_steps) * 100);
+                completionPct.textContent = pct;
+
+            } else if (msg.type === 'done') {
+                btn.disabled = false;
+                btn.textContent = 'Auto Train';
+                completionPct.textContent = '100';
+
+            } else if (msg.type === 'error') {
+                alert('Error: ' + msg.message);
+                btn.disabled = false;
+                btn.textContent = 'Auto Train';
+            }
+        };
+
+        ws.onerror = function() {
+            alert('WebSocket connection failed');
+            btn.disabled = false;
+            btn.textContent = 'Auto Train';
+        };
+    });
+})();
+</script>
 
 {% elif projects %}
 <p>Select a project to begin training.</p>

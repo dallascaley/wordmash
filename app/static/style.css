@@ -447,3 +447,52 @@ form.training-selectors label {
     margin: 0 15px 0 0;
     color: #a0aec0;
 }
+
+/* Training progress display */
+.training-progress {
+    margin-top: 20px;
+}
+
+.progress-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+}
+
+.progress-card {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.progress-card h4 {
+    margin: 0 0 12px 0;
+    color: var(--accent);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.progress-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.stat-row .stat-label {
+    color: #a0aec0;
+    font-size: 0.85rem;
+}
+
+.stat-row .stat-value {
+    color: var(--text-light);
+    font-weight: bold;
+    font-size: 1.1rem;
+}
