@@ -372,90 +372,429 @@ function resetDatabase() {
         checkAndReconnect();
     }
 
-    // Legacy WebSocket handler for other scan types (files, tables, db-rows)
-    function setupLegacyScanHandler(prefix, endpoint, isDirty, buttonText, itemName) {
-        var form = document.getElementById(prefix + '-form');
-        var btnId;
-        if (prefix.indexOf('-scan-files') > -1) {
-            btnId = prefix.replace('-scan-files-form', '-scan-btn');
-        } else if (prefix.indexOf('-scan-tables') > -1) {
-            btnId = prefix.replace('-form', '-btn');
-        } else if (prefix.indexOf('-scan-db-rows') > -1) {
-            btnId = prefix.replace('-form', '-btn');
-        }
-        var btn = document.getElementById(btnId);
+    // Job-based files scan handler
+    function setupJobBasedFilesScan(isDirty) {
+        var prefix = isDirty ? 'dirty' : 'clean';
+        var form = document.getElementById(prefix + '-scan-files-form');
+        var btn = document.getElementById(prefix + '-scan-btn');
+        var progress = document.getElementById(prefix + '-scan-progress');
+        var countSpan = document.getElementById(prefix + '-scan-count');
+        var countDisplay = document.getElementById(prefix + '-file-count');
+        var jobType = 'scan_files_' + isDirty;
 
-        var progressId = prefix.replace('-form', '-progress').replace('-files-progress', '-progress');
-        var progress = document.getElementById(progressId);
-        var countSpanId = prefix.replace('-form', '-count').replace('-files-count', '-count');
-        var countSpan = document.getElementById(countSpanId);
+        if (!form || !btn || btn.disabled || !window.WebSocket) return;
 
-        var type = prefix.split('-')[0];
-        var countId;
-        if (prefix.indexOf('-files') > -1) {
-            countId = type + '-file-count';
-        } else if (prefix.indexOf('-tables') > -1) {
-            countId = type + '-tables-count';
-        } else if (prefix.indexOf('-db-rows') > -1) {
-            countId = type + '-db-rows-count';
-        }
-        var countDisplay = document.getElementById(countId);
+        function observeJob(jobId) {
+            var wsUrl = protocol + '//' + window.location.host + '/job/' + jobId + '/ws';
+            var ws = new WebSocket(wsUrl);
 
-        if (form && btn && !btn.disabled && window.WebSocket) {
-            form.addEventListener('submit', function(e) {
-                e.preventDefault();
+            ws.onopen = function() {
+                btn.disabled = true;
+                btn.textContent = 'Scanning...';
+                if (progress) progress.style.display = 'block';
+            };
 
-                var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/scan/' + endpoint + '/ws?is_dirty=' + isDirty;
-                var ws = new WebSocket(wsUrl);
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
 
-                ws.onopen = function() {
-                    btn.disabled = true;
-                    btn.textContent = 'Scanning...';
-                    if (progress) progress.style.display = 'block';
-                    if (countSpan) countSpan.textContent = '0';
-                    if (countDisplay) countDisplay.textContent = '0';
-                };
-
-                ws.onmessage = function(event) {
-                    var data = JSON.parse(event.data);
-
-                    if (data.type === 'progress') {
-                        if (countSpan) countSpan.textContent = data.count;
-                        if (countDisplay) countDisplay.textContent = data.count;
-                    } else if (data.type === 'done') {
-                        if (countSpan) countSpan.textContent = data.total;
-                        if (countDisplay) countDisplay.textContent = data.total;
+                if (data.type === 'update') {
+                    if (countSpan) countSpan.textContent = data.progress || 0;
+                    if (countDisplay) countDisplay.textContent = data.progress || 0;
+                    if (data.message) {
+                        btn.textContent = data.message.length > 20 ? data.message.substring(0, 20) + '...' : data.message;
+                    }
+                } else if (data.type === 'done') {
+                    if (countSpan) countSpan.textContent = data.total || 0;
+                    if (countDisplay) countDisplay.textContent = data.total || 0;
+                    if (data.status === 'completed') {
                         btn.textContent = 'Done!';
-                        setTimeout(function() {
-                            window.location.reload();
-                        }, 1000);
-                    } else if (data.type === 'error') {
-                        alert('Error: ' + data.message);
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else if (data.status === 'failed') {
+                        alert('Error: ' + (data.error_details || data.message || 'Job failed'));
                         btn.disabled = false;
-                        btn.textContent = buttonText;
+                        btn.textContent = 'Scan Files';
+                        if (progress) progress.style.display = 'none';
+                    } else if (data.status === 'cancelled') {
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Files';
                         if (progress) progress.style.display = 'none';
                     }
-                };
+                } else if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Files';
+                    if (progress) progress.style.display = 'none';
+                }
+            };
 
-                ws.onerror = function() {
-                    form.submit();
-                };
-            });
+            ws.onerror = function() {
+                pollJobStatus(jobId);
+            };
+
+            ws.onclose = function(event) {
+                if (!event.wasClean && btn.disabled) {
+                    setTimeout(function() { checkAndReconnect(); }, 2000);
+                }
+            };
         }
+
+        function pollJobStatus(jobId) {
+            fetch('/job/' + jobId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'running' || data.status === 'pending') {
+                        if (countSpan) countSpan.textContent = data.progress || 0;
+                        if (countDisplay) countDisplay.textContent = data.progress || 0;
+                        setTimeout(function() { pollJobStatus(jobId); }, 1000);
+                    } else if (data.status === 'completed') {
+                        if (countDisplay) countDisplay.textContent = data.total || data.progress || 0;
+                        btn.textContent = 'Done!';
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Files';
+                        if (progress) progress.style.display = 'none';
+                    }
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Files';
+                    if (progress) progress.style.display = 'none';
+                });
+        }
+
+        function checkAndReconnect() {
+            fetch('/project/' + projectId + '/job/' + jobType)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'running' || data.status === 'pending') {
+                        if (countSpan) countSpan.textContent = data.progress || 0;
+                        if (countDisplay) countDisplay.textContent = data.progress || 0;
+                        observeJob(data.id);
+                    }
+                })
+                .catch(function() {});
+        }
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+
+            fetch('/project/' + projectId + '/scan/files/start?is_dirty=' + isDirty, {
+                method: 'POST'
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Files';
+                    return;
+                }
+
+                if (progress) progress.style.display = 'block';
+                if (countSpan) countSpan.textContent = '0';
+
+                observeJob(data.job_id);
+            })
+            .catch(function(err) {
+                alert('Error starting scan: ' + err);
+                btn.disabled = false;
+                btn.textContent = 'Scan Files';
+            });
+        });
+
+        checkAndReconnect();
     }
 
-    // Set up job-based handlers for lines scans
+    // Job-based tables scan handler
+    function setupJobBasedTablesScan(isDirty) {
+        var prefix = isDirty ? 'dirty' : 'clean';
+        var form = document.getElementById(prefix + '-scan-tables-form');
+        var btn = document.getElementById(prefix + '-scan-tables-btn');
+        var progress = document.getElementById(prefix + '-scan-tables-progress');
+        var countSpan = document.getElementById(prefix + '-scan-tables-count');
+        var countDisplay = document.getElementById(prefix + '-tables-count');
+        var jobType = 'scan_tables_' + isDirty;
+
+        if (!form || !btn || btn.disabled || !window.WebSocket) return;
+
+        function observeJob(jobId) {
+            var wsUrl = protocol + '//' + window.location.host + '/job/' + jobId + '/ws';
+            var ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                btn.disabled = true;
+                btn.textContent = 'Scanning...';
+                if (progress) progress.style.display = 'block';
+            };
+
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.type === 'update') {
+                    if (countSpan) countSpan.textContent = data.progress || 0;
+                    if (countDisplay) countDisplay.textContent = data.progress || 0;
+                    if (data.message) {
+                        btn.textContent = data.message.length > 20 ? data.message.substring(0, 20) + '...' : data.message;
+                    }
+                } else if (data.type === 'done') {
+                    if (countSpan) countSpan.textContent = data.total || 0;
+                    if (countDisplay) countDisplay.textContent = data.total || 0;
+                    if (data.status === 'completed') {
+                        btn.textContent = 'Done!';
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else if (data.status === 'failed') {
+                        alert('Error: ' + (data.error_details || data.message || 'Job failed'));
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Tables';
+                        if (progress) progress.style.display = 'none';
+                    } else if (data.status === 'cancelled') {
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Tables';
+                        if (progress) progress.style.display = 'none';
+                    }
+                } else if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Tables';
+                    if (progress) progress.style.display = 'none';
+                }
+            };
+
+            ws.onerror = function() {
+                pollJobStatus(jobId);
+            };
+
+            ws.onclose = function(event) {
+                if (!event.wasClean && btn.disabled) {
+                    setTimeout(function() { checkAndReconnect(); }, 2000);
+                }
+            };
+        }
+
+        function pollJobStatus(jobId) {
+            fetch('/job/' + jobId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'running' || data.status === 'pending') {
+                        if (countSpan) countSpan.textContent = data.progress || 0;
+                        if (countDisplay) countDisplay.textContent = data.progress || 0;
+                        setTimeout(function() { pollJobStatus(jobId); }, 1000);
+                    } else if (data.status === 'completed') {
+                        if (countDisplay) countDisplay.textContent = data.total || data.progress || 0;
+                        btn.textContent = 'Done!';
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Tables';
+                        if (progress) progress.style.display = 'none';
+                    }
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Tables';
+                    if (progress) progress.style.display = 'none';
+                });
+        }
+
+        function checkAndReconnect() {
+            fetch('/project/' + projectId + '/job/' + jobType)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'running' || data.status === 'pending') {
+                        if (countSpan) countSpan.textContent = data.progress || 0;
+                        if (countDisplay) countDisplay.textContent = data.progress || 0;
+                        observeJob(data.id);
+                    }
+                })
+                .catch(function() {});
+        }
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+
+            fetch('/project/' + projectId + '/scan/tables/start?is_dirty=' + isDirty, {
+                method: 'POST'
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Tables';
+                    return;
+                }
+
+                if (progress) progress.style.display = 'block';
+                if (countSpan) countSpan.textContent = '0';
+
+                observeJob(data.job_id);
+            })
+            .catch(function(err) {
+                alert('Error starting scan: ' + err);
+                btn.disabled = false;
+                btn.textContent = 'Scan Tables';
+            });
+        });
+
+        checkAndReconnect();
+    }
+
+    // Job-based db-rows scan handler
+    function setupJobBasedDbRowsScan(isDirty) {
+        var prefix = isDirty ? 'dirty' : 'clean';
+        var form = document.getElementById(prefix + '-scan-db-rows-form');
+        var btn = document.getElementById(prefix + '-scan-db-rows-btn');
+        var progress = document.getElementById(prefix + '-scan-db-rows-progress');
+        var countSpan = document.getElementById(prefix + '-scan-db-rows-count');
+        var countDisplay = document.getElementById(prefix + '-db-rows-count');
+        var jobType = 'scan_db_rows_' + isDirty;
+
+        if (!form || !btn || btn.disabled || !window.WebSocket) return;
+
+        function observeJob(jobId) {
+            var wsUrl = protocol + '//' + window.location.host + '/job/' + jobId + '/ws';
+            var ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                btn.disabled = true;
+                btn.textContent = 'Scanning...';
+                if (progress) progress.style.display = 'block';
+            };
+
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.type === 'update') {
+                    if (countSpan) countSpan.textContent = data.progress || 0;
+                    if (countDisplay) countDisplay.textContent = data.progress || 0;
+                    if (data.message) {
+                        btn.textContent = data.message.length > 20 ? data.message.substring(0, 20) + '...' : data.message;
+                    }
+                } else if (data.type === 'done') {
+                    if (countSpan) countSpan.textContent = data.total || 0;
+                    if (countDisplay) countDisplay.textContent = data.total || 0;
+                    if (data.status === 'completed') {
+                        btn.textContent = 'Done!';
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else if (data.status === 'failed') {
+                        alert('Error: ' + (data.error_details || data.message || 'Job failed'));
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Rows';
+                        if (progress) progress.style.display = 'none';
+                    } else if (data.status === 'cancelled') {
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Rows';
+                        if (progress) progress.style.display = 'none';
+                    }
+                } else if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Rows';
+                    if (progress) progress.style.display = 'none';
+                }
+            };
+
+            ws.onerror = function() {
+                pollJobStatus(jobId);
+            };
+
+            ws.onclose = function(event) {
+                if (!event.wasClean && btn.disabled) {
+                    setTimeout(function() { checkAndReconnect(); }, 2000);
+                }
+            };
+        }
+
+        function pollJobStatus(jobId) {
+            fetch('/job/' + jobId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'running' || data.status === 'pending') {
+                        if (countSpan) countSpan.textContent = data.progress || 0;
+                        if (countDisplay) countDisplay.textContent = data.progress || 0;
+                        setTimeout(function() { pollJobStatus(jobId); }, 1000);
+                    } else if (data.status === 'completed') {
+                        if (countDisplay) countDisplay.textContent = data.total || data.progress || 0;
+                        btn.textContent = 'Done!';
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = 'Scan Rows';
+                        if (progress) progress.style.display = 'none';
+                    }
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Rows';
+                    if (progress) progress.style.display = 'none';
+                });
+        }
+
+        function checkAndReconnect() {
+            fetch('/project/' + projectId + '/job/' + jobType)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status === 'running' || data.status === 'pending') {
+                        if (countSpan) countSpan.textContent = data.progress || 0;
+                        if (countDisplay) countDisplay.textContent = data.progress || 0;
+                        observeJob(data.id);
+                    }
+                })
+                .catch(function() {});
+        }
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+
+            fetch('/project/' + projectId + '/scan/db-rows/start?is_dirty=' + isDirty, {
+                method: 'POST'
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    btn.disabled = false;
+                    btn.textContent = 'Scan Rows';
+                    return;
+                }
+
+                if (progress) progress.style.display = 'block';
+                if (countSpan) countSpan.textContent = '0';
+
+                observeJob(data.job_id);
+            })
+            .catch(function(err) {
+                alert('Error starting scan: ' + err);
+                btn.disabled = false;
+                btn.textContent = 'Scan Rows';
+            });
+        });
+
+        checkAndReconnect();
+    }
+
+    // Set up job-based handlers for all scan types
     setupJobBasedLinesScan(0); // Clean
     setupJobBasedLinesScan(1); // Dirty
 
-    // Set up legacy handlers for other scan types (files, tables, db-rows)
-    setupLegacyScanHandler('clean-scan-files-form', 'files', 0, 'Scan Files', 'files');
-    setupLegacyScanHandler('clean-scan-tables-form', 'tables', 0, 'Scan Tables', 'tables');
-    setupLegacyScanHandler('clean-scan-db-rows-form', 'db-rows', 0, 'Scan Rows', 'rows');
+    setupJobBasedFilesScan(0); // Clean
+    setupJobBasedFilesScan(1); // Dirty
 
-    setupLegacyScanHandler('dirty-scan-files-form', 'files', 1, 'Scan Files', 'files');
-    setupLegacyScanHandler('dirty-scan-tables-form', 'tables', 1, 'Scan Tables', 'tables');
-    setupLegacyScanHandler('dirty-scan-db-rows-form', 'db-rows', 1, 'Scan Rows', 'rows');
+    setupJobBasedTablesScan(0); // Clean
+    setupJobBasedTablesScan(1); // Dirty
+
+    setupJobBasedDbRowsScan(0); // Clean
+    setupJobBasedDbRowsScan(1); // Dirty
 })();
 </script>
 {% endif %}

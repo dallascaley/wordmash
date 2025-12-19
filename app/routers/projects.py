@@ -958,6 +958,119 @@ async def scan_tables_ws(websocket: WebSocket, project_id: int, is_dirty: int = 
             conn.close()
 
 
+async def scan_tables_background_task(job_id: int, project_id: int, db_name: str, is_dirty: int):
+    """
+    Background task that scans database tables and updates the jobs table with progress.
+    """
+    conn = None
+    cursor = None
+    ext_conn = None
+    ext_cursor = None
+    try:
+        start_job(job_id)
+
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        # Clear existing tables for this is_dirty type
+        cursor.execute("DELETE FROM db_tables WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
+        conn.commit()
+
+        update_job(job_id, message="Connecting to database...")
+
+        # Connect to database and get tables
+        ext_conn = get_external_db_conn(db_name)
+        ext_cursor = ext_conn.cursor()
+        ext_cursor.execute("SHOW TABLES")
+        tables = ext_cursor.fetchall()
+
+        total_tables = len(tables)
+        update_job(job_id, total=total_tables, message=f"Found {total_tables} tables...")
+
+        count = 0
+        for table_row in tables:
+            table_name = list(table_row.values())[0]
+            cursor.execute(
+                "INSERT INTO db_tables (table_name, project_id, is_dirty) VALUES (%s, %s, %s)",
+                (table_name, project_id, is_dirty)
+            )
+            count += 1
+            if count % 10 == 0:
+                update_job(job_id, progress=count, message=f"Inserted {count}/{total_tables} tables...")
+                await asyncio.sleep(0)
+
+        conn.commit()
+
+        # Update inventory cache
+        update_inventory_counts(cursor, conn, project_id, is_dirty, 'db_tables', count)
+
+        # Mark job complete
+        complete_job(job_id, total=count, message=f"Completed: {count} tables scanned")
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        fail_job(job_id, str(e))
+    finally:
+        if ext_cursor:
+            ext_cursor.close()
+        if ext_conn:
+            ext_conn.close()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@router.post("/project/{project_id}/scan/tables/start")
+async def start_scan_tables(project_id: int, is_dirty: int = 1):
+    """
+    Start a tables scan job. Returns the job_id for tracking progress.
+    If a scan is already running, returns the existing job_id.
+    """
+    # Check for existing running job
+    job_type = f"scan_tables_{is_dirty}"
+    existing_job = get_running_job(job_type, project_id)
+    if existing_job:
+        return JSONResponse({
+            "job_id": existing_job["id"],
+            "status": existing_job["status"],
+            "message": "Job already running",
+            "existing": True
+        })
+
+    # Get project info
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    db_name = project.get("dirty_db") if is_dirty else project.get("clean_db")
+    if not db_name:
+        return JSONResponse({"error": "Database not configured for this project"}, status_code=400)
+
+    # Create the job
+    job_id = create_job(job_type, project_id, message="Starting tables scan...")
+
+    # Start background task
+    run_job_in_background(
+        job_id,
+        scan_tables_background_task(job_id, project_id, db_name, is_dirty)
+    )
+
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "pending",
+        "message": "Job started",
+        "existing": False
+    })
+
+
 @router.post("/project/{project_id}/scan/db-rows")
 def scan_db_rows(request: Request, project_id: int, is_dirty: int = 1):
     conn = get_conn()
@@ -1139,3 +1252,152 @@ async def scan_db_rows_ws(websocket: WebSocket, project_id: int, is_dirty: int =
             cursor.close()
         if conn:
             conn.close()
+
+
+async def scan_db_rows_background_task(job_id: int, project_id: int, db_name: str, is_dirty: int):
+    """
+    Background task that scans database rows and updates the jobs table with progress.
+    """
+    conn = None
+    cursor = None
+    ext_conn = None
+    ext_cursor = None
+    try:
+        start_job(job_id)
+
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        # Get tables for this project and is_dirty type
+        cursor.execute("SELECT id, table_name FROM db_tables WHERE project_id = %s AND is_dirty = %s", (project_id, is_dirty))
+        tables = cursor.fetchall()
+
+        if not tables:
+            fail_job(job_id, "No tables found. Scan tables first.")
+            return
+
+        # Clear existing rows for this is_dirty type
+        cursor.execute("""
+            DELETE dtr FROM db_table_rows dtr
+            JOIN db_tables dt ON dtr.table_id = dt.id
+            WHERE dt.project_id = %s AND dt.is_dirty = %s
+        """, (project_id, is_dirty))
+        conn.commit()
+
+        update_job(job_id, message=f"Scanning {len(tables)} tables...")
+
+        ext_conn = get_external_db_conn(db_name)
+        ext_cursor = ext_conn.cursor()
+
+        total_count = 0
+        batch = []
+        batch_size = 500
+        last_update = 0
+
+        for table in tables:
+            table_id = table["id"]
+            table_name = table["table_name"]
+
+            try:
+                ext_cursor.execute(f"SELECT * FROM `{table_name}`")
+                rows = ext_cursor.fetchall()
+
+                for row in rows:
+                    for field_name, value in row.items():
+                        if value is not None:
+                            contents = str(value)
+                            total_count += 1
+                            batch.append((field_name, contents, table_id, is_dirty))
+
+                            if len(batch) >= batch_size:
+                                cursor.executemany(
+                                    "INSERT INTO db_table_rows (field_name, contents, table_id, is_dirty) VALUES (%s, %s, %s, %s)",
+                                    batch
+                                )
+                                conn.commit()
+                                batch = []
+
+                                # Update job progress every 5000 rows
+                                if total_count - last_update >= 5000:
+                                    update_job(job_id, progress=total_count, message=f"Scanned {total_count} rows...")
+                                    last_update = total_count
+                                    await asyncio.sleep(0)
+            except Exception:
+                continue
+
+        # Insert remaining batch
+        if batch:
+            cursor.executemany(
+                "INSERT INTO db_table_rows (field_name, contents, table_id, is_dirty) VALUES (%s, %s, %s, %s)",
+                batch
+            )
+            conn.commit()
+
+        # Update inventory cache
+        update_inventory_counts(cursor, conn, project_id, is_dirty, 'db_table_rows', total_count)
+
+        # Mark job complete
+        complete_job(job_id, total=total_count, message=f"Completed: {total_count} rows scanned")
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        fail_job(job_id, str(e))
+    finally:
+        if ext_cursor:
+            ext_cursor.close()
+        if ext_conn:
+            ext_conn.close()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@router.post("/project/{project_id}/scan/db-rows/start")
+async def start_scan_db_rows(project_id: int, is_dirty: int = 1):
+    """
+    Start a database rows scan job. Returns the job_id for tracking progress.
+    If a scan is already running, returns the existing job_id.
+    """
+    # Check for existing running job
+    job_type = f"scan_db_rows_{is_dirty}"
+    existing_job = get_running_job(job_type, project_id)
+    if existing_job:
+        return JSONResponse({
+            "job_id": existing_job["id"],
+            "status": existing_job["status"],
+            "message": "Job already running",
+            "existing": True
+        })
+
+    # Get project info
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    db_name = project.get("dirty_db") if is_dirty else project.get("clean_db")
+    if not db_name:
+        return JSONResponse({"error": "Database not configured for this project"}, status_code=400)
+
+    # Create the job
+    job_id = create_job(job_type, project_id, message="Starting database rows scan...")
+
+    # Start background task
+    run_job_in_background(
+        job_id,
+        scan_db_rows_background_task(job_id, project_id, db_name, is_dirty)
+    )
+
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "pending",
+        "message": "Job started",
+        "existing": False
+    })
