@@ -98,15 +98,29 @@
     var projectId = '{{ project.id }}';
     var btn = document.getElementById('auto-train-btn');
     var completionPct = document.getElementById('completion-pct');
+    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var jobType = 'auto_train_' + projectId;
 
-    btn.addEventListener('click', function() {
-        if (!projectId) {
-            alert('Please select a project first');
-            return;
-        }
+    function updateProgressFromData(data) {
+        // Update files
+        document.getElementById('files-processed').textContent = data.files.processed;
+        document.getElementById('files-matched').textContent = data.files.matched;
 
-        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var wsUrl = protocol + '//' + window.location.host + '/project/' + projectId + '/auto-train/ws';
+        // Update lines
+        document.getElementById('lines-processed').textContent = data.lines.processed;
+        document.getElementById('lines-matched').textContent = data.lines.matched;
+
+        // Update tables
+        document.getElementById('tables-processed').textContent = data.tables.processed;
+        document.getElementById('tables-matched').textContent = data.tables.matched;
+
+        // Update rows
+        document.getElementById('rows-processed').textContent = data.rows.processed;
+        document.getElementById('rows-matched').textContent = data.rows.matched;
+    }
+
+    function observeJob(jobId) {
+        var wsUrl = protocol + '//' + window.location.host + '/job/' + jobId + '/ws';
         var ws = new WebSocket(wsUrl);
 
         ws.onopen = function() {
@@ -117,33 +131,39 @@
         ws.onmessage = function(event) {
             var msg = JSON.parse(event.data);
 
-            if (msg.type === 'progress') {
-                var data = msg.data;
-
-                // Update files
-                document.getElementById('files-processed').textContent = data.files.processed;
-                document.getElementById('files-matched').textContent = data.files.matched;
-
-                // Update lines
-                document.getElementById('lines-processed').textContent = data.lines.processed;
-                document.getElementById('lines-matched').textContent = data.lines.matched;
-
-                // Update tables
-                document.getElementById('tables-processed').textContent = data.tables.processed;
-                document.getElementById('tables-matched').textContent = data.tables.matched;
-
-                // Update rows
-                document.getElementById('rows-processed').textContent = data.rows.processed;
-                document.getElementById('rows-matched').textContent = data.rows.matched;
-
+            if (msg.type === 'update') {
                 // Update completion percentage
-                var pct = Math.round((msg.step / msg.total_steps) * 100);
-                completionPct.textContent = pct;
+                completionPct.textContent = msg.progress || 0;
+
+                // Parse progress data from message field
+                if (msg.message) {
+                    try {
+                        var progressData = JSON.parse(msg.message);
+                        if (progressData.data) {
+                            updateProgressFromData(progressData.data);
+                        }
+                    } catch (e) {
+                        // Message is not JSON, just show as status
+                        btn.textContent = msg.message.length > 20 ? msg.message.substring(0, 20) + '...' : msg.message;
+                    }
+                }
 
             } else if (msg.type === 'done') {
-                btn.disabled = false;
-                btn.textContent = 'Auto Train';
-                completionPct.textContent = '100';
+                if (msg.status === 'completed') {
+                    btn.textContent = 'Done!';
+                    completionPct.textContent = '100';
+                    setTimeout(function() {
+                        btn.disabled = false;
+                        btn.textContent = 'Auto Train';
+                    }, 2000);
+                } else if (msg.status === 'failed') {
+                    alert('Error: ' + (msg.error_details || msg.message || 'Training failed'));
+                    btn.disabled = false;
+                    btn.textContent = 'Auto Train';
+                } else if (msg.status === 'cancelled') {
+                    btn.disabled = false;
+                    btn.textContent = 'Auto Train';
+                }
 
             } else if (msg.type === 'error') {
                 alert('Error: ' + msg.message);
@@ -153,11 +173,109 @@
         };
 
         ws.onerror = function() {
-            alert('WebSocket connection failed');
+            // Fall back to polling
+            pollJobStatus(jobId);
+        };
+
+        ws.onclose = function(event) {
+            if (!event.wasClean && btn.disabled) {
+                setTimeout(function() { checkAndReconnect(); }, 2000);
+            }
+        };
+    }
+
+    function pollJobStatus(jobId) {
+        fetch('/job/' + jobId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.status === 'running' || data.status === 'pending') {
+                    completionPct.textContent = data.progress || 0;
+
+                    // Parse progress data from message
+                    if (data.message) {
+                        try {
+                            var progressData = JSON.parse(data.message);
+                            if (progressData.data) {
+                                updateProgressFromData(progressData.data);
+                            }
+                        } catch (e) {}
+                    }
+
+                    setTimeout(function() { pollJobStatus(jobId); }, 1000);
+                } else if (data.status === 'completed') {
+                    completionPct.textContent = '100';
+                    btn.textContent = 'Done!';
+                    setTimeout(function() {
+                        btn.disabled = false;
+                        btn.textContent = 'Auto Train';
+                    }, 2000);
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Auto Train';
+                }
+            })
+            .catch(function() {
+                btn.disabled = false;
+                btn.textContent = 'Auto Train';
+            });
+    }
+
+    function checkAndReconnect() {
+        fetch('/project/' + projectId + '/job/' + jobType)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.status === 'running' || data.status === 'pending') {
+                    completionPct.textContent = data.progress || 0;
+
+                    // Parse progress data from message
+                    if (data.message) {
+                        try {
+                            var progressData = JSON.parse(data.message);
+                            if (progressData.data) {
+                                updateProgressFromData(progressData.data);
+                            }
+                        } catch (e) {}
+                    }
+
+                    observeJob(data.id);
+                }
+            })
+            .catch(function() {});
+    }
+
+    btn.addEventListener('click', function() {
+        if (!projectId) {
+            alert('Please select a project first');
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Starting...';
+
+        fetch('/project/' + projectId + '/auto-train/start', {
+            method: 'POST'
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                alert('Error: ' + data.error);
+                btn.disabled = false;
+                btn.textContent = 'Auto Train';
+                return;
+            }
+
+            completionPct.textContent = '0';
+            observeJob(data.job_id);
+        })
+        .catch(function(err) {
+            alert('Error starting training: ' + err);
             btn.disabled = false;
             btn.textContent = 'Auto Train';
-        };
+        });
     });
+
+    // On page load, check for running jobs
+    checkAndReconnect();
 })();
 </script>
 

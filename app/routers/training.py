@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 from app.db import get_conn
+from app.jobs import (
+    create_job, update_job, get_job, get_running_job,
+    start_job, complete_job, fail_job, run_job_in_background
+)
 import asyncio
 
 router = APIRouter()
@@ -41,6 +46,125 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
             "selected_data_type": data_type,
         }
     )
+
+
+async def auto_train_background_task(job_id: int, project_id: int):
+    """
+    Background task that runs auto-training and updates the jobs table with progress.
+    This is a placeholder that will be replaced with actual training logic.
+    """
+    try:
+        start_job(job_id)
+
+        # Mock data - 5 updates representing training steps
+        # This will be replaced with actual training logic later
+        mock_updates = [
+            {
+                "files": {"processed": 100, "matched": 10},
+                "lines": {"processed": 0, "matched": 0},
+                "tables": {"processed": 0, "matched": 0},
+                "rows": {"processed": 0, "matched": 0},
+            },
+            {
+                "files": {"processed": 250, "matched": 25},
+                "lines": {"processed": 1000, "matched": 50},
+                "tables": {"processed": 0, "matched": 0},
+                "rows": {"processed": 0, "matched": 0},
+            },
+            {
+                "files": {"processed": 500, "matched": 45},
+                "lines": {"processed": 5000, "matched": 200},
+                "tables": {"processed": 5, "matched": 2},
+                "rows": {"processed": 0, "matched": 0},
+            },
+            {
+                "files": {"processed": 750, "matched": 60},
+                "lines": {"processed": 10000, "matched": 400},
+                "tables": {"processed": 10, "matched": 4},
+                "rows": {"processed": 500, "matched": 20},
+            },
+            {
+                "files": {"processed": 1000, "matched": 80},
+                "lines": {"processed": 15000, "matched": 600},
+                "tables": {"processed": 12, "matched": 5},
+                "rows": {"processed": 1200, "matched": 50},
+            },
+        ]
+
+        total_steps = len(mock_updates)
+
+        for i, data in enumerate(mock_updates):
+            step = i + 1
+            pct = round((step / total_steps) * 100)
+
+            # Store progress data as JSON string in message field
+            import json
+            progress_data = {
+                "step": step,
+                "total_steps": total_steps,
+                "data": data
+            }
+
+            update_job(
+                job_id,
+                progress=pct,
+                total=100,
+                message=json.dumps(progress_data)
+            )
+
+            await asyncio.sleep(1)
+
+        complete_job(job_id, total=100, message="Training completed successfully")
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        fail_job(job_id, str(e))
+
+
+@router.post("/project/{project_id}/auto-train/start")
+async def start_auto_train(project_id: int):
+    """
+    Start an auto-train job. Returns the job_id for tracking progress.
+    If training is already running, returns the existing job_id.
+    """
+    # Check for existing running job
+    job_type = f"auto_train_{project_id}"
+    existing_job = get_running_job(job_type, project_id)
+    if existing_job:
+        return JSONResponse({
+            "job_id": existing_job["id"],
+            "status": existing_job["status"],
+            "message": "Job already running",
+            "existing": True
+        })
+
+    # Verify project exists
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not project:
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    # Create the job
+    job_id = create_job(job_type, project_id, message="Starting auto-train...")
+
+    # Start background task
+    run_job_in_background(
+        job_id,
+        auto_train_background_task(job_id, project_id)
+    )
+
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "pending",
+        "message": "Job started",
+        "existing": False
+    })
 
 
 @router.websocket("/project/{project_id}/auto-train/ws")
