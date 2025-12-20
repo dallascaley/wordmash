@@ -27,12 +27,12 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
         project = cursor.fetchone()
 
-        # Get totals from latest completed scan jobs
+        # Get totals from latest completed scan jobs (dirty side, is_dirty=1)
         scan_job_types = {
-            "files": f"scan_files_{project_id}",
-            "lines": f"scan_lines_{project_id}",
-            "tables": f"scan_tables_{project_id}",
-            "rows": f"scan_db_rows_{project_id}",
+            "files": "scan_files_1",
+            "lines": "scan_lines_1",
+            "tables": "scan_tables_1",
+            "rows": "scan_db_rows_1",
         }
         for key, job_type in scan_job_types.items():
             job = get_latest_completed_job(job_type, project_id)
