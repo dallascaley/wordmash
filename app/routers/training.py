@@ -21,23 +21,73 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
     projects = cursor.fetchall()
 
     project = None
-    scan_totals = {"files": 0, "lines": 0, "tables": 0, "rows": 0}
+    # Initialize stats structure for all four boxes
+    stats = {
+        "files": {"total": 0, "binary": 0, "code": 0, "valid": 0, "mixed": 0, "research": 0},
+        "lines": {"total": 0, "binary": 0, "code": 0, "valid": 0, "mixed": 0, "research": 0},
+        "tables": {"total": 0, "binary": 0, "data": 0, "valid": 0, "mixed": 0, "research": 0},
+        "rows": {"total": 0, "binary": 0, "data": 0, "valid": 0, "mixed": 0, "research": 0},
+    }
 
     if project_id:
         cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
         project = cursor.fetchone()
 
-        # Get totals from latest completed scan jobs (dirty side, is_dirty=1)
-        scan_job_types = {
-            "files": "scan_files_1",
-            "lines": "scan_lines_1",
-            "tables": "scan_tables_1",
-            "rows": "scan_db_rows_1",
-        }
-        for key, job_type in scan_job_types.items():
-            job = get_latest_completed_job(job_type, project_id)
-            if job and job.get("total"):
-                scan_totals[key] = job["total"]
+        # Get file stats
+        cursor.execute("SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1", (project_id,))
+        stats["files"]["total"] = cursor.fetchone()["cnt"]
+
+        cursor.execute("SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND is_binary = 1", (project_id,))
+        stats["files"]["binary"] = cursor.fetchone()["cnt"]
+
+        cursor.execute("SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND is_binary = 0", (project_id,))
+        stats["files"]["code"] = cursor.fetchone()["cnt"]
+
+        cursor.execute("SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND status = 'valid'", (project_id,))
+        stats["files"]["valid"] = cursor.fetchone()["cnt"]
+
+        cursor.execute("SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND status = 'mixed'", (project_id,))
+        stats["files"]["mixed"] = cursor.fetchone()["cnt"]
+
+        cursor.execute("SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND status = 'research'", (project_id,))
+        stats["files"]["research"] = cursor.fetchone()["cnt"]
+
+        # Get line stats
+        cursor.execute("""
+            SELECT COUNT(*) as cnt FROM file_rows fr
+            JOIN files f ON fr.file_id = f.id
+            WHERE f.project_id = %s AND fr.is_dirty = 1
+        """, (project_id,))
+        stats["lines"]["total"] = cursor.fetchone()["cnt"]
+        stats["lines"]["code"] = stats["lines"]["total"]  # All lines are code
+
+        cursor.execute("""
+            SELECT COUNT(*) as cnt FROM file_rows fr
+            JOIN files f ON fr.file_id = f.id
+            WHERE f.project_id = %s AND fr.is_dirty = 1 AND fr.status = 'valid'
+        """, (project_id,))
+        stats["lines"]["valid"] = cursor.fetchone()["cnt"]
+
+        cursor.execute("""
+            SELECT COUNT(*) as cnt FROM file_rows fr
+            JOIN files f ON fr.file_id = f.id
+            WHERE f.project_id = %s AND fr.is_dirty = 1 AND fr.status = 'research'
+        """, (project_id,))
+        stats["lines"]["research"] = cursor.fetchone()["cnt"]
+
+        # Get table stats
+        cursor.execute("SELECT COUNT(*) as cnt FROM db_tables WHERE project_id = %s AND is_dirty = 1", (project_id,))
+        stats["tables"]["total"] = cursor.fetchone()["cnt"]
+        stats["tables"]["data"] = stats["tables"]["total"]  # All tables are data
+
+        # Get db row stats
+        cursor.execute("""
+            SELECT COUNT(*) as cnt FROM db_table_rows dr
+            JOIN db_tables t ON dr.table_id = t.id
+            WHERE t.project_id = %s AND dr.is_dirty = 1
+        """, (project_id,))
+        stats["rows"]["total"] = cursor.fetchone()["cnt"]
+        stats["rows"]["data"] = stats["rows"]["total"]  # All rows are data
 
     cursor.close()
     conn.close()
@@ -58,7 +108,7 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
             "project": project,
             "data_types": data_types,
             "selected_data_type": data_type,
-            "scan_totals": scan_totals,
+            "stats": stats,
         }
     )
 
@@ -102,6 +152,18 @@ async def auto_train_background_task(
         total_dirty_files = cursor.fetchone()["cnt"]
 
         cursor.execute(
+            "SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND is_binary = 1",
+            (project_id,)
+        )
+        binary_files = cursor.fetchone()["cnt"]
+
+        cursor.execute(
+            "SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND is_binary = 0",
+            (project_id,)
+        )
+        code_files = cursor.fetchone()["cnt"]
+
+        cursor.execute(
             "SELECT COUNT(*) as cnt FROM file_rows fr "
             "JOIN files f ON fr.file_id = f.id "
             "WHERE f.project_id = %s AND fr.is_dirty = 1",
@@ -109,18 +171,33 @@ async def auto_train_background_task(
         )
         total_dirty_lines = cursor.fetchone()["cnt"]
 
-        # Progress counters
-        files_processed = 0
-        files_matched = 0
-        lines_processed = 0
-        lines_matched = 0
+        # Progress counters for file statuses
+        files_valid = 0
+        files_mixed = 0
+        files_research = 0
+        lines_valid = 0
+        lines_research = 0
 
         def make_progress_data():
             return {
-                "files": {"processed": files_processed, "matched": files_matched},
-                "lines": {"processed": lines_processed, "matched": lines_matched},
-                "tables": {"processed": 0, "matched": 0},
-                "rows": {"processed": 0, "matched": 0},
+                "files": {
+                    "total": total_dirty_files,
+                    "binary": binary_files,
+                    "code": code_files,
+                    "valid": files_valid,
+                    "mixed": files_mixed,
+                    "research": files_research
+                },
+                "lines": {
+                    "total": total_dirty_lines,
+                    "binary": 0,
+                    "code": total_dirty_lines,
+                    "valid": lines_valid,
+                    "mixed": 0,
+                    "research": lines_research
+                },
+                "tables": {"total": 0, "binary": 0, "data": 0, "valid": 0, "mixed": 0, "research": 0},
+                "rows": {"total": 0, "binary": 0, "data": 0, "valid": 0, "mixed": 0, "research": 0},
             }
 
         update_job(job_id, progress=0, message=json.dumps({"data": make_progress_data()}))
@@ -149,14 +226,15 @@ async def auto_train_background_task(
         research_lines_count = cursor.rowcount
         conn.commit()
 
-        files_processed = research_files_count
-        lines_processed = research_lines_count
+        files_research = research_files_count
+        lines_research = research_lines_count
 
+        files_processed = research_files_count
         update_job(
             files_job_id,
             progress=files_processed,
             total=total_dirty_files,
-            message=json.dumps({"processed": files_processed, "matched": 0})
+            message=json.dumps(make_progress_data()["files"])
         )
         pct = round((files_processed / total_dirty_files) * 100) if total_dirty_files > 0 else 0
         update_job(job_id, progress=pct, message=json.dumps({"data": make_progress_data()}))
@@ -208,9 +286,10 @@ async def auto_train_background_task(
                 for i, dirty_row in enumerate(dirty_rows):
                     if i < len(clean_rows) and dirty_row["text"] == clean_rows[i]["text"]:
                         valid_ids.append(dirty_row["id"])
-                        lines_matched += 1
+                        lines_valid += 1
                     else:
                         research_ids.append(dirty_row["id"])
+                        lines_research += 1
                         all_match = False
 
                 # Bulk update rows for this file
@@ -223,13 +302,12 @@ async def auto_train_background_task(
                         f"UPDATE file_rows SET status = 'research' WHERE id IN ({','.join(map(str, research_ids))})"
                     )
 
-                lines_processed += len(dirty_rows)
-
                 if all_match:
                     valid_file_ids.append(dirty_id)
-                    files_matched += 1
+                    files_valid += 1
                 else:
                     mixed_file_ids.append(dirty_id)
+                    files_mixed += 1
 
                 files_processed += 1
 
@@ -246,12 +324,7 @@ async def auto_train_background_task(
 
             # Update progress
             pct = round((files_processed / total_dirty_files) * 100) if total_dirty_files > 0 else 100
-            progress_data = {
-                "files": {"processed": files_processed, "matched": files_matched},
-                "lines": {"processed": lines_processed, "matched": lines_matched},
-                "tables": {"processed": 0, "matched": 0},
-                "rows": {"processed": 0, "matched": 0},
-            }
+            progress_data = make_progress_data()
 
             update_job(
                 job_id,
@@ -267,7 +340,7 @@ async def auto_train_background_task(
             )
             update_job(
                 lines_job_id,
-                progress=lines_processed,
+                progress=lines_valid + lines_research,
                 total=total_dirty_lines,
                 message=json.dumps(progress_data["lines"])
             )

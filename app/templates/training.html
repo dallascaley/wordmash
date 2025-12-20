@@ -5,7 +5,7 @@
 {% if project %}
 <div class="training-controls">
     <div class="auto-train-group">
-        {% set has_data = scan_totals.files > 0 or scan_totals.lines > 0 or scan_totals.tables > 0 or scan_totals.rows > 0 %}
+        {% set has_data = stats.files.total > 0 or stats.lines.total > 0 or stats.tables.total > 0 or stats.rows.total > 0 %}
         <button type="button" id="auto-train-btn" class="auto-train-btn" {% if not has_data %}disabled{% endif %}>Auto Train</button>
         <span class="completion-status">Completion %: <span id="completion-pct">0</span></span>
     </div>
@@ -33,15 +33,27 @@
             <div class="progress-stats">
                 <div class="stat-row">
                     <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="files-total">{{ scan_totals.files }}</span>
+                    <span class="stat-value" id="files-total">{{ stats.files.total }}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Processed:</span>
-                    <span class="stat-value" id="files-processed">0</span>
+                    <span class="stat-label">Binary:</span>
+                    <span class="stat-value" id="files-binary">{{ stats.files.binary }}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Matched:</span>
-                    <span class="stat-value" id="files-matched">0</span>
+                    <span class="stat-label">Code:</span>
+                    <span class="stat-value" id="files-code">{{ stats.files.code }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Valid:</span>
+                    <span class="stat-value" id="files-valid">{{ stats.files.valid }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Mixed:</span>
+                    <span class="stat-value" id="files-mixed">{{ stats.files.mixed }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Research:</span>
+                    <span class="stat-value" id="files-research">{{ stats.files.research }}</span>
                 </div>
             </div>
         </div>
@@ -51,15 +63,27 @@
             <div class="progress-stats">
                 <div class="stat-row">
                     <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="lines-total">{{ scan_totals.lines }}</span>
+                    <span class="stat-value" id="lines-total">{{ stats.lines.total }}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Processed:</span>
-                    <span class="stat-value" id="lines-processed">0</span>
+                    <span class="stat-label">Binary:</span>
+                    <span class="stat-value" id="lines-binary">{{ stats.lines.binary }}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Matched:</span>
-                    <span class="stat-value" id="lines-matched">0</span>
+                    <span class="stat-label">Code:</span>
+                    <span class="stat-value" id="lines-code">{{ stats.lines.code }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Valid:</span>
+                    <span class="stat-value" id="lines-valid">{{ stats.lines.valid }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Mixed:</span>
+                    <span class="stat-value" id="lines-mixed">{{ stats.lines.mixed }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Research:</span>
+                    <span class="stat-value" id="lines-research">{{ stats.lines.research }}</span>
                 </div>
             </div>
         </div>
@@ -69,15 +93,27 @@
             <div class="progress-stats">
                 <div class="stat-row">
                     <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="tables-total">{{ scan_totals.tables }}</span>
+                    <span class="stat-value" id="tables-total">{{ stats.tables.total }}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Processed:</span>
-                    <span class="stat-value" id="tables-processed">0</span>
+                    <span class="stat-label">Binary:</span>
+                    <span class="stat-value" id="tables-binary">{{ stats.tables.binary }}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Matched:</span>
-                    <span class="stat-value" id="tables-matched">0</span>
+                    <span class="stat-label">Data:</span>
+                    <span class="stat-value" id="tables-data">{{ stats.tables.data }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Valid:</span>
+                    <span class="stat-value" id="tables-valid">{{ stats.tables.valid }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Mixed:</span>
+                    <span class="stat-value" id="tables-mixed">{{ stats.tables.mixed }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Research:</span>
+                    <span class="stat-value" id="tables-research">{{ stats.tables.research }}</span>
                 </div>
             </div>
         </div>
@@ -87,15 +123,27 @@
             <div class="progress-stats">
                 <div class="stat-row">
                     <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="rows-total">{{ scan_totals.rows }}</span>
+                    <span class="stat-value" id="rows-total">{{ stats.rows.total }}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Processed:</span>
-                    <span class="stat-value" id="rows-processed">0</span>
+                    <span class="stat-label">Binary:</span>
+                    <span class="stat-value" id="rows-binary">{{ stats.rows.binary }}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Matched:</span>
-                    <span class="stat-value" id="rows-matched">0</span>
+                    <span class="stat-label">Data:</span>
+                    <span class="stat-value" id="rows-data">{{ stats.rows.data }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Valid:</span>
+                    <span class="stat-value" id="rows-valid">{{ stats.rows.valid }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Mixed:</span>
+                    <span class="stat-value" id="rows-mixed">{{ stats.rows.mixed }}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Research:</span>
+                    <span class="stat-value" id="rows-research">{{ stats.rows.research }}</span>
                 </div>
             </div>
         </div>
@@ -112,20 +160,36 @@
 
     function updateProgressFromData(data) {
         // Update files
-        document.getElementById('files-processed').textContent = data.files.processed;
-        document.getElementById('files-matched').textContent = data.files.matched;
+        document.getElementById('files-total').textContent = data.files.total;
+        document.getElementById('files-binary').textContent = data.files.binary;
+        document.getElementById('files-code').textContent = data.files.code;
+        document.getElementById('files-valid').textContent = data.files.valid;
+        document.getElementById('files-mixed').textContent = data.files.mixed;
+        document.getElementById('files-research').textContent = data.files.research;
 
         // Update lines
-        document.getElementById('lines-processed').textContent = data.lines.processed;
-        document.getElementById('lines-matched').textContent = data.lines.matched;
+        document.getElementById('lines-total').textContent = data.lines.total;
+        document.getElementById('lines-binary').textContent = data.lines.binary;
+        document.getElementById('lines-code').textContent = data.lines.code;
+        document.getElementById('lines-valid').textContent = data.lines.valid;
+        document.getElementById('lines-mixed').textContent = data.lines.mixed;
+        document.getElementById('lines-research').textContent = data.lines.research;
 
         // Update tables
-        document.getElementById('tables-processed').textContent = data.tables.processed;
-        document.getElementById('tables-matched').textContent = data.tables.matched;
+        document.getElementById('tables-total').textContent = data.tables.total;
+        document.getElementById('tables-binary').textContent = data.tables.binary;
+        document.getElementById('tables-data').textContent = data.tables.data;
+        document.getElementById('tables-valid').textContent = data.tables.valid;
+        document.getElementById('tables-mixed').textContent = data.tables.mixed;
+        document.getElementById('tables-research').textContent = data.tables.research;
 
         // Update rows
-        document.getElementById('rows-processed').textContent = data.rows.processed;
-        document.getElementById('rows-matched').textContent = data.rows.matched;
+        document.getElementById('rows-total').textContent = data.rows.total;
+        document.getElementById('rows-binary').textContent = data.rows.binary;
+        document.getElementById('rows-data').textContent = data.rows.data;
+        document.getElementById('rows-valid').textContent = data.rows.valid;
+        document.getElementById('rows-mixed').textContent = data.rows.mixed;
+        document.getElementById('rows-research').textContent = data.rows.research;
     }
 
     function observeJob(jobId) {
@@ -234,19 +298,19 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.status === 'running' || data.status === 'pending') {
-                    completionPct.textContent = data.progress || 0;
+                    // Only update UI if job was started within last 5 minutes
+                    // This prevents stale jobs from overwriting current stats
+                    var jobStart = new Date(data.started_at || data.created_at);
+                    var now = new Date();
+                    var ageMinutes = (now - jobStart) / 1000 / 60;
 
-                    // Parse progress data from message
-                    if (data.message) {
-                        try {
-                            var progressData = JSON.parse(data.message);
-                            if (progressData.data) {
-                                updateProgressFromData(progressData.data);
-                            }
-                        } catch (e) {}
+                    if (ageMinutes < 5) {
+                        completionPct.textContent = data.progress || 0;
+                        btn.disabled = true;
+                        btn.textContent = 'Training...';
+                        observeJob(data.id);
                     }
-
-                    observeJob(data.id);
+                    // If job is stale (>5 min old and still "running"), ignore it
                 }
             })
             .catch(function() {});
