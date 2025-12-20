@@ -2,17 +2,6 @@
 {% block content %}
 <h2>Inventory {% if project %}<span id="ws-status" class="ws-status ws-checking" style="font-size: 12px; font-weight: normal;">checking...</span>{% endif %}</h2>
 
-<form action="/inventory" method="get" class="project-selector">
-    <label>Select Project:
-        <select name="project_id" onchange="this.form.submit()">
-            <option value="">-- Choose a project --</option>
-            {% for p in projects %}
-            <option value="{{ p.id }}" {% if project and project.id == p.id %}selected{% endif %}>{{ p.name }}</option>
-            {% endfor %}
-        </select>
-    </label>
-</form>
-
 {% if project %}
 <h3>{{ project.name }}</h3>
 
@@ -146,10 +135,8 @@
     <button type="button" id="reset-btn" class="reset-btn" onclick="resetDatabase()">Reset All Data</button>
 </div>
 
-{% elif projects %}
-<p>Select a project to view its inventory.</p>
 {% else %}
-<p>No projects yet. <a href="/projects">Create one</a> to get started.</p>
+<p>Select a project from the menu above to view its inventory.</p>
 {% endif %}
 
 {% if project %}

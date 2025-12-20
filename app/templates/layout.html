@@ -8,7 +8,15 @@
 </head>
 <body>
     <header>
-        <h1>WordMash</h1>
+        <div class="header-content">
+            <h1>WordMash</h1>
+            <div class="nav-project-selector">
+                <label>Project:</label>
+                <select id="global-project-select">
+                    <option value="">-- Select Project --</option>
+                </select>
+            </div>
+        </div>
         <nav>
             <a href="/">Home</a>
             <a href="/projects">Projects</a>
@@ -18,6 +26,76 @@
             <a href="/admin">Admin</a>
         </nav>
     </header>
+    <script>
+    (function() {
+        var select = document.getElementById('global-project-select');
+        var selectorContainer = document.querySelector('.nav-project-selector');
+        var storageKey = 'wordmash_selected_project';
+
+        // Hide on home page
+        if (window.location.pathname === '/') {
+            selectorContainer.style.display = 'none';
+            return;
+        }
+
+        // Load projects from API
+        fetch('/api/projects')
+            .then(function(r) { return r.json(); })
+            .then(function(projects) {
+                projects.forEach(function(p) {
+                    var opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = p.name;
+                    select.appendChild(opt);
+                });
+
+                // Check URL for project_id first, then localStorage
+                var urlParams = new URLSearchParams(window.location.search);
+                var urlProjectId = urlParams.get('project_id');
+                var savedProjectId = localStorage.getItem(storageKey);
+
+                if (urlProjectId) {
+                    select.value = urlProjectId;
+                    localStorage.setItem(storageKey, urlProjectId);
+                } else if (savedProjectId) {
+                    select.value = savedProjectId;
+                    // If on a page that needs project_id, add it to URL
+                    var needsProject = ['/inventory', '/training'].some(function(path) {
+                        return window.location.pathname === path;
+                    });
+                    if (needsProject && !urlProjectId) {
+                        var newUrl = window.location.pathname + '?project_id=' + savedProjectId;
+                        window.history.replaceState({}, '', newUrl);
+                        window.location.reload();
+                    }
+                }
+            });
+
+        // Handle project selection change
+        select.addEventListener('change', function() {
+            var projectId = select.value;
+            if (projectId) {
+                localStorage.setItem(storageKey, projectId);
+            } else {
+                localStorage.removeItem(storageKey);
+            }
+
+            // Update URL and reload if on a project-aware page
+            var projectPages = ['/inventory', '/training'];
+            var isProjectPage = projectPages.some(function(path) {
+                return window.location.pathname === path;
+            });
+
+            if (isProjectPage) {
+                var newUrl = window.location.pathname;
+                if (projectId) {
+                    newUrl += '?project_id=' + projectId;
+                }
+                window.location.href = newUrl;
+            }
+        });
+    })();
+    </script>
     
     <main>
         {% block content %}{% endblock %}

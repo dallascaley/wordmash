@@ -1,6 +1,82 @@
 {% extends "layout.html" %}
 {% block content %}
 <h2>Statistics</h2>
-<p>Track project progress and AI classifier accuracy.</p>
-<p><em>Coming soon.</em></p>
+
+<div class="stats-grid">
+    <div class="stats-card highlight">
+        <h3>Classifier Accuracy</h3>
+        <div class="stat-big">{{ stats.classifier_accuracy }}%</div>
+        <p class="stat-desc">Valid lines / Total classified lines</p>
+    </div>
+
+    <div class="stats-card highlight">
+        <h3>Training Progress</h3>
+        <div class="stat-big">{{ stats.training_progress }}%</div>
+        <p class="stat-desc">Files classified / Total files</p>
+    </div>
+</div>
+
+<h3>Data Overview</h3>
+<div class="stats-grid">
+    <div class="stats-card">
+        <h4>Total Files</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.total_files) }}</div>
+    </div>
+    <div class="stats-card">
+        <h4>Total Lines of Code</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.total_lines) }}</div>
+    </div>
+    <div class="stats-card">
+        <h4>Total DB Tables</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.total_tables) }}</div>
+    </div>
+    <div class="stats-card">
+        <h4>Total DB Rows</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.total_db_rows) }}</div>
+    </div>
+</div>
+
+<h3>File Classification</h3>
+<div class="stats-grid">
+    <div class="stats-card valid">
+        <h4>Valid</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.files_valid) }}</div>
+        <p class="stat-desc">All lines match clean version</p>
+    </div>
+    <div class="stats-card mixed">
+        <h4>Mixed</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.files_mixed) }}</div>
+        <p class="stat-desc">Some lines differ</p>
+    </div>
+    <div class="stats-card research">
+        <h4>Research</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.files_research) }}</div>
+        <p class="stat-desc">No clean version found</p>
+    </div>
+    <div class="stats-card unclassified">
+        <h4>Unclassified</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.files_unclassified) }}</div>
+        <p class="stat-desc">Not yet processed</p>
+    </div>
+</div>
+
+<h3>Line Classification</h3>
+<div class="stats-grid">
+    <div class="stats-card valid">
+        <h4>Valid</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.lines_valid) }}</div>
+        <p class="stat-desc">Matches clean version</p>
+    </div>
+    <div class="stats-card research">
+        <h4>Research</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.lines_research) }}</div>
+        <p class="stat-desc">Differs or no clean version</p>
+    </div>
+    <div class="stats-card unclassified">
+        <h4>Unclassified</h4>
+        <div class="stat-value">{{ "{:,}".format(stats.lines_unclassified) }}</div>
+        <p class="stat-desc">Not yet processed</p>
+    </div>
+</div>
+
 {% endblock %}

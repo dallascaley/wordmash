@@ -2,6 +2,7 @@
 {% block content %}
 <h2>Training</h2>
 
+{% if project %}
 <div class="training-controls">
     <div class="auto-train-group">
         {% set has_data = scan_totals.files > 0 or scan_totals.lines > 0 or scan_totals.tables > 0 or scan_totals.rows > 0 %}
@@ -12,15 +13,7 @@
     <div class="training-divider"></div>
 
     <form action="/training" method="get" class="training-selectors">
-        <label>Select Project:
-            <select name="project_id" onchange="this.form.submit()">
-                <option value="">-- Choose a project --</option>
-                {% for p in projects %}
-                <option value="{{ p.id }}" {% if project and project.id == p.id %}selected{% endif %}>{{ p.name }}</option>
-                {% endfor %}
-            </select>
-        </label>
-
+        <input type="hidden" name="project_id" value="{{ project.id }}">
         <label>Data Type:
             <select name="data_type" onchange="this.form.submit()">
                 {% for dt in data_types %}
@@ -31,7 +24,6 @@
     </form>
 </div>
 
-{% if project %}
 <h3>{{ project.name }}</h3>
 
 <div class="training-progress">
@@ -296,10 +288,8 @@
 })();
 </script>
 
-{% elif projects %}
-<p>Select a project to begin training.</p>
 {% else %}
-<p>No projects yet. <a href="/projects">Create one</a> to get started.</p>
+<p>Select a project from the menu above to begin training.</p>
 {% endif %}
 
 {% endblock %}
