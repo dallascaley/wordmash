@@ -74,6 +74,22 @@ def get_running_job(job_type: str, project_id: int) -> Optional[dict]:
     return job
 
 
+def get_latest_completed_job(job_type: str, project_id: int) -> Optional[dict]:
+    """Get the latest completed job for a specific type and project."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT * FROM jobs
+           WHERE job_type = %s AND project_id = %s AND status = 'completed'
+           ORDER BY ended_at DESC LIMIT 1""",
+        (job_type, project_id)
+    )
+    job = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return job
+
+
 def start_job(job_id: int):
     """Mark job as started."""
     update_job(job_id, status='running', started_at=datetime.now())
