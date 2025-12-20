@@ -48,13 +48,25 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
     )
 
 
-async def auto_train_background_task(job_id: int, project_id: int):
+async def auto_train_background_task(
+    job_id: int,
+    project_id: int,
+    files_job_id: int,
+    lines_job_id: int,
+    tables_job_id: int,
+    rows_job_id: int
+):
     """
     Background task that runs auto-training and updates the jobs table with progress.
+    Updates both the main job and each sub-job (files, lines, tables, rows).
     This is a placeholder that will be replaced with actual training logic.
     """
     try:
         start_job(job_id)
+        start_job(files_job_id)
+        start_job(lines_job_id)
+        start_job(tables_job_id)
+        start_job(rows_job_id)
 
         # Mock data - 5 updates representing training steps
         # This will be replaced with actual training logic later
@@ -91,20 +103,27 @@ async def auto_train_background_task(job_id: int, project_id: int):
             },
         ]
 
+        # Map sub-job IDs to their data keys
+        sub_jobs = {
+            "files": files_job_id,
+            "lines": lines_job_id,
+            "tables": tables_job_id,
+            "rows": rows_job_id,
+        }
+
         total_steps = len(mock_updates)
+        import json
 
         for i, data in enumerate(mock_updates):
             step = i + 1
             pct = round((step / total_steps) * 100)
 
-            # Store progress data as JSON string in message field
-            import json
+            # Update main job with overall progress
             progress_data = {
                 "step": step,
                 "total_steps": total_steps,
                 "data": data
             }
-
             update_job(
                 job_id,
                 progress=pct,
@@ -112,20 +131,36 @@ async def auto_train_background_task(job_id: int, project_id: int):
                 message=json.dumps(progress_data)
             )
 
+            # Update each sub-job with its individual progress
+            for key, sub_job_id in sub_jobs.items():
+                sub_data = data[key]
+                update_job(
+                    sub_job_id,
+                    progress=sub_data["processed"],
+                    total=sub_data["processed"],  # Will be replaced with actual totals
+                    message=json.dumps(sub_data)
+                )
+
             await asyncio.sleep(1)
 
+        # Complete all jobs
         complete_job(job_id, total=100, message="Training completed successfully")
+        for key, sub_job_id in sub_jobs.items():
+            complete_job(sub_job_id, message=f"{key.capitalize()} scan completed")
 
     except asyncio.CancelledError:
         raise
     except Exception as e:
         fail_job(job_id, str(e))
+        for sub_job_id in [files_job_id, lines_job_id, tables_job_id, rows_job_id]:
+            fail_job(sub_job_id, str(e))
 
 
 @router.post("/project/{project_id}/auto-train/start")
 async def start_auto_train(project_id: int):
     """
     Start an auto-train job. Returns the job_id for tracking progress.
+    Creates 5 jobs: main auto_train plus auto_files, auto_lines, auto_tables, auto_rows.
     If training is already running, returns the existing job_id.
     """
     # Check for existing running job
@@ -150,20 +185,32 @@ async def start_auto_train(project_id: int):
     if not project:
         return JSONResponse({"error": "Project not found"}, status_code=404)
 
-    # Create the job
+    # Create the main job
     job_id = create_job(job_type, project_id, message="Starting auto-train...")
 
-    # Start background task
+    # Create the 4 sub-jobs for each data type
+    files_job_id = create_job(f"auto_files_{project_id}", project_id, message="Pending...")
+    lines_job_id = create_job(f"auto_lines_{project_id}", project_id, message="Pending...")
+    tables_job_id = create_job(f"auto_tables_{project_id}", project_id, message="Pending...")
+    rows_job_id = create_job(f"auto_rows_{project_id}", project_id, message="Pending...")
+
+    # Start background task with all job IDs
     run_job_in_background(
         job_id,
-        auto_train_background_task(job_id, project_id)
+        auto_train_background_task(job_id, project_id, files_job_id, lines_job_id, tables_job_id, rows_job_id)
     )
 
     return JSONResponse({
         "job_id": job_id,
         "status": "pending",
         "message": "Job started",
-        "existing": False
+        "existing": False,
+        "sub_jobs": {
+            "files": files_job_id,
+            "lines": lines_job_id,
+            "tables": tables_job_id,
+            "rows": rows_job_id
+        }
     })
 
 
