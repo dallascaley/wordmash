@@ -4,7 +4,8 @@
 
 <div class="training-controls">
     <div class="auto-train-group">
-        <button type="button" id="auto-train-btn" class="auto-train-btn">Auto Train</button>
+        {% set has_data = scan_totals.files > 0 or scan_totals.lines > 0 or scan_totals.tables > 0 or scan_totals.rows > 0 %}
+        <button type="button" id="auto-train-btn" class="auto-train-btn" {% if not has_data %}disabled{% endif %}>Auto Train</button>
         <span class="completion-status">Completion %: <span id="completion-pct">0</span></span>
     </div>
 

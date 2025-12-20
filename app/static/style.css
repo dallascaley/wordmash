@@ -411,8 +411,17 @@ h2 .ws-status {
     margin-right: 15px;
 }
 
-.auto-train-btn:hover {
+.auto-train-btn:hover:not(:disabled) {
     background: var(--primary-light);
+}
+
+.auto-train-btn:disabled,
+.auto-train-btn[disabled] {
+    background: #4a5568 !important;
+    color: #718096 !important;
+    cursor: not-allowed !important;
+    opacity: 0.7;
+    pointer-events: none;
 }
 
 .completion-status {
