@@ -3,148 +3,169 @@
 <h2>Training</h2>
 
 {% if project %}
-<div class="training-controls">
-    <div class="auto-train-group">
-        {% set has_data = stats.files.total > 0 or stats.lines.total > 0 or stats.tables.total > 0 or stats.rows.total > 0 %}
-        <button type="button" id="auto-train-btn" class="auto-train-btn" {% if not has_data %}disabled{% endif %}>Auto Train</button>
-        <span class="completion-status">Completion %: <span id="completion-pct">0</span></span>
-    </div>
-
-    <div class="training-divider"></div>
-
-    <form action="/training" method="get" class="training-selectors">
-        <input type="hidden" name="project_id" value="{{ project.id }}">
-        <label>Data Type:
-            <select name="data_type" onchange="this.form.submit()">
-                {% for dt in data_types %}
-                <option value="{{ dt.value }}" {% if selected_data_type == dt.value %}selected{% endif %}>{{ dt.label }}</option>
-                {% endfor %}
-            </select>
-        </label>
-    </form>
-</div>
-
 <h3>{{ project.name }}</h3>
 
-<div class="training-progress">
-    <div class="progress-grid">
-        <div class="progress-card">
-            <h4>Files</h4>
-            <div class="progress-stats">
-                <div class="stat-row">
-                    <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="files-total">{{ stats.files.total }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Binary:</span>
-                    <span class="stat-value" id="files-binary">{{ stats.files.binary }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Code:</span>
-                    <span class="stat-value" id="files-code">{{ stats.files.code }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Valid:</span>
-                    <span class="stat-value" id="files-valid">{{ stats.files.valid }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Mixed:</span>
-                    <span class="stat-value" id="files-mixed">{{ stats.files.mixed }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Research:</span>
-                    <span class="stat-value" id="files-research">{{ stats.files.research }}</span>
+<div class="accordion-container">
+    <!-- Auto Train Section -->
+    <div class="accordion-section" id="auto-train-section">
+        <div class="accordion-header active" data-section="auto-train">
+            <span class="accordion-title">Auto Train</span>
+            <span class="accordion-meta">
+                <span class="completion-status">Completion: <span id="completion-pct">0</span>%</span>
+            </span>
+            <span class="accordion-arrow">&#9660;</span>
+        </div>
+        <div class="accordion-content" id="auto-train-content">
+            <div class="auto-train-controls">
+                {% set has_data = stats.files.total > 0 or stats.lines.total > 0 or stats.tables.total > 0 or stats.rows.total > 0 %}
+                <button type="button" id="auto-train-btn" class="auto-train-btn" {% if not has_data %}disabled{% endif %}>Auto Train</button>
+            </div>
+
+            <div class="training-progress">
+                <div class="progress-grid">
+                    <div class="progress-card">
+                        <h4>Files</h4>
+                        <div class="progress-stats">
+                            <div class="stat-row">
+                                <span class="stat-label">Total:</span>
+                                <span class="stat-value" id="files-total">{{ stats.files.total }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Binary:</span>
+                                <span class="stat-value" id="files-binary">{{ stats.files.binary }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Code:</span>
+                                <span class="stat-value" id="files-code">{{ stats.files.code }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Valid:</span>
+                                <span class="stat-value" id="files-valid">{{ stats.files.valid }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Mixed:</span>
+                                <span class="stat-value" id="files-mixed">{{ stats.files.mixed }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Research:</span>
+                                <span class="stat-value" id="files-research">{{ stats.files.research }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="progress-card">
+                        <h4>Lines of Code</h4>
+                        <div class="progress-stats">
+                            <div class="stat-row">
+                                <span class="stat-label">Total:</span>
+                                <span class="stat-value" id="lines-total">{{ stats.lines.total }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Binary:</span>
+                                <span class="stat-value" id="lines-binary">{{ stats.lines.binary }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Code:</span>
+                                <span class="stat-value" id="lines-code">{{ stats.lines.code }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Valid:</span>
+                                <span class="stat-value" id="lines-valid">{{ stats.lines.valid }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Mixed:</span>
+                                <span class="stat-value" id="lines-mixed">{{ stats.lines.mixed }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Research:</span>
+                                <span class="stat-value" id="lines-research">{{ stats.lines.research }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="progress-card">
+                        <h4>Database Tables</h4>
+                        <div class="progress-stats">
+                            <div class="stat-row">
+                                <span class="stat-label">Total:</span>
+                                <span class="stat-value" id="tables-total">{{ stats.tables.total }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Binary:</span>
+                                <span class="stat-value" id="tables-binary">{{ stats.tables.binary }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Data:</span>
+                                <span class="stat-value" id="tables-data">{{ stats.tables.data }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Valid:</span>
+                                <span class="stat-value" id="tables-valid">{{ stats.tables.valid }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Mixed:</span>
+                                <span class="stat-value" id="tables-mixed">{{ stats.tables.mixed }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Research:</span>
+                                <span class="stat-value" id="tables-research">{{ stats.tables.research }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="progress-card">
+                        <h4>Database Rows</h4>
+                        <div class="progress-stats">
+                            <div class="stat-row">
+                                <span class="stat-label">Total:</span>
+                                <span class="stat-value" id="rows-total">{{ stats.rows.total }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Binary:</span>
+                                <span class="stat-value" id="rows-binary">{{ stats.rows.binary }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Data:</span>
+                                <span class="stat-value" id="rows-data">{{ stats.rows.data }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Valid:</span>
+                                <span class="stat-value" id="rows-valid">{{ stats.rows.valid }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Mixed:</span>
+                                <span class="stat-value" id="rows-mixed">{{ stats.rows.mixed }}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Research:</span>
+                                <span class="stat-value" id="rows-research">{{ stats.rows.research }}</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <div class="progress-card">
-            <h4>Lines of Code</h4>
-            <div class="progress-stats">
-                <div class="stat-row">
-                    <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="lines-total">{{ stats.lines.total }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Binary:</span>
-                    <span class="stat-value" id="lines-binary">{{ stats.lines.binary }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Code:</span>
-                    <span class="stat-value" id="lines-code">{{ stats.lines.code }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Valid:</span>
-                    <span class="stat-value" id="lines-valid">{{ stats.lines.valid }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Mixed:</span>
-                    <span class="stat-value" id="lines-mixed">{{ stats.lines.mixed }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Research:</span>
-                    <span class="stat-value" id="lines-research">{{ stats.lines.research }}</span>
-                </div>
-            </div>
+    <!-- Manual Train Section -->
+    <div class="accordion-section" id="manual-train-section">
+        <div class="accordion-header" data-section="manual-train">
+            <span class="accordion-title">Manual Train</span>
+            <span class="accordion-arrow">&#9654;</span>
         </div>
-
-        <div class="progress-card">
-            <h4>Database Tables</h4>
-            <div class="progress-stats">
-                <div class="stat-row">
-                    <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="tables-total">{{ stats.tables.total }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Binary:</span>
-                    <span class="stat-value" id="tables-binary">{{ stats.tables.binary }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Data:</span>
-                    <span class="stat-value" id="tables-data">{{ stats.tables.data }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Valid:</span>
-                    <span class="stat-value" id="tables-valid">{{ stats.tables.valid }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Mixed:</span>
-                    <span class="stat-value" id="tables-mixed">{{ stats.tables.mixed }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Research:</span>
-                    <span class="stat-value" id="tables-research">{{ stats.tables.research }}</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="progress-card">
-            <h4>Database Rows</h4>
-            <div class="progress-stats">
-                <div class="stat-row">
-                    <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="rows-total">{{ stats.rows.total }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Binary:</span>
-                    <span class="stat-value" id="rows-binary">{{ stats.rows.binary }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Data:</span>
-                    <span class="stat-value" id="rows-data">{{ stats.rows.data }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Valid:</span>
-                    <span class="stat-value" id="rows-valid">{{ stats.rows.valid }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Mixed:</span>
-                    <span class="stat-value" id="rows-mixed">{{ stats.rows.mixed }}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Research:</span>
-                    <span class="stat-value" id="rows-research">{{ stats.rows.research }}</span>
-                </div>
+        <div class="accordion-content collapsed" id="manual-train-content">
+            <form action="/training" method="get" class="manual-train-form">
+                <input type="hidden" name="project_id" value="{{ project.id }}">
+                <label>Data Type:
+                    <select name="data_type" onchange="this.form.submit()">
+                        {% for dt in data_types %}
+                        <option value="{{ dt.value }}" {% if selected_data_type == dt.value %}selected{% endif %}>{{ dt.label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </form>
+            <div class="manual-train-placeholder">
+                <p>Manual training interface coming soon...</p>
             </div>
         </div>
     </div>
@@ -157,6 +178,32 @@
     var completionPct = document.getElementById('completion-pct');
     var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     var jobType = 'auto_train_' + projectId;
+
+    // Accordion functionality
+    var headers = document.querySelectorAll('.accordion-header');
+    headers.forEach(function(header) {
+        header.addEventListener('click', function() {
+            var section = this.getAttribute('data-section');
+            var content = document.getElementById(section + '-content');
+            var isActive = this.classList.contains('active');
+
+            // Close all sections
+            headers.forEach(function(h) {
+                h.classList.remove('active');
+                h.querySelector('.accordion-arrow').innerHTML = '&#9654;';
+            });
+            document.querySelectorAll('.accordion-content').forEach(function(c) {
+                c.classList.add('collapsed');
+            });
+
+            // Open clicked section if it wasn't already active
+            if (!isActive) {
+                this.classList.add('active');
+                this.querySelector('.accordion-arrow').innerHTML = '&#9660;';
+                content.classList.remove('collapsed');
+            }
+        });
+    });
 
     function updateProgressFromData(data) {
         // Update files
