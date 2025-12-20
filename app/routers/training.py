@@ -109,7 +109,21 @@ async def auto_train_background_task(
         )
         total_dirty_lines = cursor.fetchone()["cnt"]
 
-        update_job(job_id, message=json.dumps({"data": {"status": "Phase 1: Finding files without clean matches..."}}))
+        # Progress counters
+        files_processed = 0
+        files_matched = 0
+        lines_processed = 0
+        lines_matched = 0
+
+        def make_progress_data():
+            return {
+                "files": {"processed": files_processed, "matched": files_matched},
+                "lines": {"processed": lines_processed, "matched": lines_matched},
+                "tables": {"processed": 0, "matched": 0},
+                "rows": {"processed": 0, "matched": 0},
+            }
+
+        update_job(job_id, progress=0, message=json.dumps({"data": make_progress_data()}))
         await asyncio.sleep(0)
 
         # PHASE 1: Mark files without clean counterparts as 'research' (bulk operation)
@@ -144,11 +158,11 @@ async def auto_train_background_task(
             total=total_dirty_files,
             message=json.dumps({"processed": files_processed, "matched": 0})
         )
-        update_job(job_id, progress=5, message=json.dumps({"data": {"status": f"Phase 1 complete: {research_files_count} files marked as research"}}))
+        pct = round((files_processed / total_dirty_files) * 100) if total_dirty_files > 0 else 0
+        update_job(job_id, progress=pct, message=json.dumps({"data": make_progress_data()}))
         await asyncio.sleep(0)
 
         # PHASE 2: Get dirty files that have clean counterparts
-        update_job(job_id, message=json.dumps({"data": {"status": "Phase 2: Comparing files with clean matches..."}}))
 
         cursor.execute("""
             SELECT d.id as dirty_id, c.id as clean_id
@@ -161,8 +175,6 @@ async def auto_train_background_task(
         """, (project_id,))
         file_pairs = cursor.fetchall()
 
-        files_matched = 0
-        lines_matched = 0
         BATCH_SIZE = 100  # Process 100 file pairs at a time
 
         for batch_start in range(0, len(file_pairs), BATCH_SIZE):
