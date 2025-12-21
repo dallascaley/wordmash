@@ -1,12 +1,25 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from app.routers import projects, inventory, training
 from app.db import get_conn
+from app.jobs import cleanup_stale_jobs
 import os
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: clean up any stale jobs from previous runs
+    cancelled = cleanup_stale_jobs()
+    if cancelled > 0:
+        print(f"[Startup] Cancelled {cancelled} stale job(s) from previous run")
+    yield
+    # Shutdown: nothing to clean up
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.websocket("/ws/ping")

@@ -153,3 +153,67 @@ def is_job_running(job_id: int) -> bool:
     """Check if a job's background task is still running."""
     task = _running_tasks.get(job_id)
     return task is not None and not task.done()
+
+
+def cleanup_stale_jobs() -> int:
+    """
+    Mark any running/pending jobs as cancelled on server startup.
+    Returns the number of jobs cancelled.
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE jobs
+        SET status = 'cancelled',
+            ended_at = %s,
+            error_details = 'Server restarted - job was interrupted'
+        WHERE status IN ('running', 'pending')
+    """, (datetime.now(),))
+
+    cancelled_count = cursor.rowcount
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return cancelled_count
+
+
+def cleanup_old_stale_jobs(max_age_minutes: int = 30) -> int:
+    """
+    Mark jobs as failed if they've been 'running' for too long without updates.
+    This catches jobs that got stuck without proper error handling.
+    Returns the number of jobs marked as failed.
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # Find jobs that have been running for longer than max_age_minutes
+    # and aren't being tracked in memory (meaning they're actually dead)
+    cursor.execute("""
+        SELECT id FROM jobs
+        WHERE status = 'running'
+        AND started_at < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+    """, (max_age_minutes,))
+
+    stale_jobs = cursor.fetchall()
+    stale_count = 0
+
+    for job in stale_jobs:
+        job_id = job['id']
+        # Only mark as failed if we're not tracking it in memory
+        if job_id not in _running_tasks:
+            cursor.execute("""
+                UPDATE jobs
+                SET status = 'failed',
+                    ended_at = %s,
+                    error_details = 'Job timed out - no progress for over %s minutes'
+                WHERE id = %s
+            """, (datetime.now(), max_age_minutes, job_id))
+            stale_count += 1
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return stale_count
