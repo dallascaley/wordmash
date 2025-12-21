@@ -156,17 +156,69 @@
         <div class="accordion-content collapsed" id="manual-train-content">
             <form action="/training" method="get" class="manual-train-form">
                 <input type="hidden" name="project_id" value="{{ project.id }}">
-                <label>Data Type:
-                    <select name="data_type" onchange="this.form.submit()">
-                        {% for dt in data_types %}
-                        <option value="{{ dt.value }}" {% if selected_data_type == dt.value %}selected{% endif %}>{{ dt.label }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="data_type" value="files" {% if selected_data_type == 'files' or not selected_data_type %}checked{% endif %} onchange="this.form.submit()">
+                        <span>Files</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="data_type" value="data" {% if selected_data_type == 'data' %}checked{% endif %} onchange="this.form.submit()">
+                        <span>Data</span>
+                    </label>
+                </div>
             </form>
+
+            {% if selected_data_type == 'files' or not selected_data_type %}
+                {% if manual_train.dirty_file %}
+                <div class="file-info">
+                    <strong>File:</strong> {{ manual_train.dirty_file.file_name }}
+                    <strong>Path:</strong> {{ manual_train.dirty_file.path }}
+                    <span class="file-status status-{{ manual_train.dirty_file.status or 'unclassified' }}">{{ manual_train.dirty_file.status or 'unclassified' }}</span>
+                </div>
+                <div class="file-comparison">
+                    <div class="file-panel">
+                        <div class="panel-header">Dirty File</div>
+                        <div class="file-content">
+                            {% for line in manual_train.dirty_lines %}
+                            <div class="code-line {% if line.status %}line-{{ line.status }}{% endif %}">
+                                <span class="line-number">{{ loop.index }}</span>
+                                <span class="line-text">{{ line.text or '' }}</span>
+                            </div>
+                            {% endfor %}
+                            {% if not manual_train.dirty_lines %}
+                            <div class="empty-message">No lines in file</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="file-panel">
+                        <div class="panel-header">Clean File</div>
+                        <div class="file-content">
+                            {% if manual_train.has_clean_match %}
+                                {% for line in manual_train.clean_lines %}
+                                <div class="code-line">
+                                    <span class="line-number">{{ loop.index }}</span>
+                                    <span class="line-text">{{ line.text or '' }}</span>
+                                </div>
+                                {% endfor %}
+                                {% if not manual_train.clean_lines %}
+                                <div class="empty-message">No lines in file</div>
+                                {% endif %}
+                            {% else %}
+                            <div class="no-match-message">No matching file</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="no-files-message">
+                    <p>No files requiring manual review. All dirty files are classified as 'valid'.</p>
+                </div>
+                {% endif %}
+            {% elif selected_data_type == 'data' %}
             <div class="manual-train-placeholder">
-                <p>Manual training interface coming soon...</p>
+                <p>Database manual training interface coming soon...</p>
             </div>
+            {% endif %}
         </div>
     </div>
 </div>

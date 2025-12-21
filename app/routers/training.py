@@ -100,16 +100,66 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         stats["rows"]["valid"] = row_stats["valid_cnt"] or 0
         stats["rows"]["research"] = row_stats["research_cnt"] or 0
 
-    cursor.close()
-    conn.close()
+    # Manual training data
+    manual_train = {
+        "dirty_file": None,
+        "clean_file": None,
+        "dirty_lines": [],
+        "clean_lines": [],
+        "has_clean_match": False,
+    }
 
-    # Valid data types
-    data_types = [
-        {"value": "files", "label": "Files"},
-        {"value": "lines", "label": "Lines of Code"},
-        {"value": "tables", "label": "Database Tables"},
-        {"value": "rows", "label": "Database Rows"},
-    ]
+    if project_id and data_type == "files":
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        # Find first dirty file with status != 'valid' (bad, mixed, research, or NULL)
+        cursor.execute("""
+            SELECT id, file_name, path, status
+            FROM files
+            WHERE project_id = %s AND is_dirty = 1 AND (status IS NULL OR status != 'valid')
+            ORDER BY id
+            LIMIT 1
+        """, (project_id,))
+        dirty_file = cursor.fetchone()
+
+        if dirty_file:
+            manual_train["dirty_file"] = dirty_file
+
+            # Get all lines from dirty file
+            cursor.execute("""
+                SELECT id, text, status
+                FROM file_rows
+                WHERE file_id = %s
+                ORDER BY id
+            """, (dirty_file["id"],))
+            manual_train["dirty_lines"] = cursor.fetchall()
+
+            # Find matching clean file
+            cursor.execute("""
+                SELECT id, file_name, path
+                FROM files
+                WHERE project_id = %s AND is_dirty = 0
+                    AND file_name = %s AND path = %s
+                LIMIT 1
+            """, (project_id, dirty_file["file_name"], dirty_file["path"]))
+            clean_file = cursor.fetchone()
+
+            if clean_file:
+                manual_train["clean_file"] = clean_file
+                manual_train["has_clean_match"] = True
+
+                # Get all lines from clean file
+                cursor.execute("""
+                    SELECT id, text
+                    FROM file_rows
+                    WHERE file_id = %s
+                    ORDER BY id
+                """, (clean_file["id"],))
+                manual_train["clean_lines"] = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
 
     return templates.TemplateResponse(
         "training.html",
@@ -117,9 +167,9 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
             "request": request,
             "projects": projects,
             "project": project,
-            "data_types": data_types,
             "selected_data_type": data_type,
             "stats": stats,
+            "manual_train": manual_train,
         }
     )
 
