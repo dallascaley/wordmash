@@ -4,3 +4,4 @@ jinja2
 pymysql
 python-multipart
 scikit-learn
+yoyo-migrations
