@@ -677,6 +677,70 @@ async def start_auto_train(project_id: int):
     })
 
 
+@router.post("/project/{project_id}/auto-train/clear")
+def clear_training_data(project_id: int):
+    """
+    Clear all training data (status fields) for a project.
+    Resets files, file_rows, db_tables, and db_table_rows status to NULL.
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # Verify project exists
+    cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+    if not project:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    # Clear file status for dirty files
+    cursor.execute("""
+        UPDATE files SET status = NULL
+        WHERE project_id = %s AND is_dirty = 1
+    """, (project_id,))
+    files_cleared = cursor.rowcount
+
+    # Clear file_rows status for dirty files
+    cursor.execute("""
+        UPDATE file_rows fr
+        JOIN files f ON fr.file_id = f.id
+        SET fr.status = NULL
+        WHERE f.project_id = %s AND f.is_dirty = 1
+    """, (project_id,))
+    lines_cleared = cursor.rowcount
+
+    # Clear db_tables status for dirty tables
+    cursor.execute("""
+        UPDATE db_tables SET status = NULL
+        WHERE project_id = %s AND is_dirty = 1
+    """, (project_id,))
+    tables_cleared = cursor.rowcount
+
+    # Clear db_table_rows status for dirty tables
+    cursor.execute("""
+        UPDATE db_table_rows dr
+        JOIN db_tables t ON dr.table_id = t.id
+        SET dr.status = NULL
+        WHERE t.project_id = %s AND t.is_dirty = 1
+    """, (project_id,))
+    rows_cleared = cursor.rowcount
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return JSONResponse({
+        "success": True,
+        "cleared": {
+            "files": files_cleared,
+            "lines": lines_cleared,
+            "tables": tables_cleared,
+            "rows": rows_cleared
+        }
+    })
+
+
 @router.websocket("/project/{project_id}/auto-train/ws")
 async def auto_train_ws(websocket: WebSocket, project_id: int):
     await websocket.accept()

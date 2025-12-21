@@ -18,7 +18,9 @@
         <div class="accordion-content" id="auto-train-content">
             <div class="auto-train-controls">
                 {% set has_data = stats.files.total > 0 or stats.lines.total > 0 or stats.tables.total > 0 or stats.rows.total > 0 %}
+                {% set has_training = stats.files.valid > 0 or stats.files.mixed > 0 or stats.files.research > 0 or stats.tables.valid > 0 or stats.tables.mixed > 0 or stats.tables.research > 0 %}
                 <button type="button" id="auto-train-btn" class="auto-train-btn" {% if not has_data %}disabled{% endif %}>Auto Train</button>
+                <button type="button" id="clear-training-btn" class="clear-training-btn" {% if not has_training %}disabled{% endif %}>Clear Training</button>
             </div>
 
             <div class="training-progress">
@@ -227,9 +229,61 @@
 (function() {
     var projectId = '{{ project.id }}';
     var btn = document.getElementById('auto-train-btn');
+    var clearBtn = document.getElementById('clear-training-btn');
     var completionPct = document.getElementById('completion-pct');
     var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     var jobType = 'auto_train_' + projectId;
+
+    // Clear Training button handler
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            if (!confirm('Are you sure you want to clear all training data? This will reset all status fields to unclassified.')) {
+                return;
+            }
+
+            clearBtn.disabled = true;
+            clearBtn.textContent = 'Clearing...';
+
+            fetch('/project/' + projectId + '/auto-train/clear', {
+                method: 'POST'
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    clearBtn.disabled = false;
+                    clearBtn.textContent = 'Clear Training';
+                    return;
+                }
+
+                // Reset all the display values to show cleared state
+                document.getElementById('files-valid').textContent = '0';
+                document.getElementById('files-mixed').textContent = '0';
+                document.getElementById('files-research').textContent = '0';
+                document.getElementById('lines-valid').textContent = '0';
+                document.getElementById('lines-mixed').textContent = '0';
+                document.getElementById('lines-research').textContent = '0';
+                document.getElementById('tables-valid').textContent = '0';
+                document.getElementById('tables-mixed').textContent = '0';
+                document.getElementById('tables-research').textContent = '0';
+                document.getElementById('rows-valid').textContent = '0';
+                document.getElementById('rows-mixed').textContent = '0';
+                document.getElementById('rows-research').textContent = '0';
+                completionPct.textContent = '0';
+
+                clearBtn.textContent = 'Cleared!';
+                setTimeout(function() {
+                    clearBtn.textContent = 'Clear Training';
+                    clearBtn.disabled = true; // Stay disabled since no training data
+                }, 2000);
+            })
+            .catch(function(err) {
+                alert('Error clearing training data: ' + err);
+                clearBtn.disabled = false;
+                clearBtn.textContent = 'Clear Training';
+            });
+        });
+    }
 
     // Accordion functionality
     var headers = document.querySelectorAll('.accordion-header');
