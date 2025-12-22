@@ -183,6 +183,7 @@
                         <div class="file-content">
                             {% for line in manual_train.dirty_lines %}
                             <div class="code-line {% if line.status %}line-{{ line.status }}{% endif %}">
+                                <input type="checkbox" class="important-checkbox" data-row-id="{{ line.id }}" {% if line.important %}checked{% endif %}>
                                 <span class="line-number">{{ loop.index }}</span>
                                 <span class="line-text">{{ line.text or '' }}</span>
                             </div>
@@ -211,15 +212,82 @@
                         </div>
                     </div>
                 </div>
+                <div class="classification-controls">
+                    <div class="radio-group classification-radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="file_status" value="valid" class="status-radio" data-type="file">
+                            <span>Valid</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="file_status" value="bad" class="status-radio" data-type="file">
+                            <span>Bad</span>
+                        </label>
+                    </div>
+                </div>
+                <input type="hidden" id="current-file-id" value="{{ manual_train.dirty_file.id }}">
                 {% else %}
                 <div class="no-files-message">
                     <p>No files requiring manual review. All dirty files are classified as 'valid'.</p>
                 </div>
                 {% endif %}
             {% elif selected_data_type == 'data' %}
-            <div class="manual-train-placeholder">
-                <p>Database manual training interface coming soon...</p>
-            </div>
+                {% if manual_train.dirty_table %}
+                <div class="file-info">
+                    <strong>Table:</strong> {{ manual_train.dirty_table.table_name }}
+                    <span class="file-status status-{{ manual_train.dirty_table.status or 'unclassified' }}">{{ manual_train.dirty_table.status or 'unclassified' }}</span>
+                </div>
+                <div class="file-comparison" id="data-comparison">
+                    <div class="file-panel">
+                        <div class="panel-header">Dirty Data</div>
+                        <div class="file-content">
+                            {% for row in manual_train.dirty_rows %}
+                            <div class="code-line {% if row.status %}line-{{ row.status }}{% endif %}">
+                                <span class="line-number">{{ loop.index }}</span>
+                                <span class="line-text"><strong>{{ row.field_name }}:</strong> {{ row.contents[:200] }}{% if row.contents|length > 200 %}...{% endif %}</span>
+                            </div>
+                            {% endfor %}
+                            {% if not manual_train.dirty_rows %}
+                            <div class="empty-message">No rows in table</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="file-panel">
+                        <div class="panel-header">Clean Data</div>
+                        <div class="file-content">
+                            {% if manual_train.has_clean_table_match %}
+                                {% for row in manual_train.clean_rows %}
+                                <div class="code-line">
+                                    <span class="line-number">{{ loop.index }}</span>
+                                    <span class="line-text"><strong>{{ row.field_name }}:</strong> {{ row.contents[:200] }}{% if row.contents|length > 200 %}...{% endif %}</span>
+                                </div>
+                                {% endfor %}
+                                {% if not manual_train.clean_rows %}
+                                <div class="empty-message">No rows in table</div>
+                                {% endif %}
+                            {% else %}
+                            <div class="no-match-message">No matching table</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="classification-controls">
+                    <div class="radio-group classification-radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="table_status" value="valid" class="status-radio" data-type="table">
+                            <span>Valid</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="table_status" value="bad" class="status-radio" data-type="table">
+                            <span>Bad</span>
+                        </label>
+                    </div>
+                </div>
+                <input type="hidden" id="current-table-id" value="{{ manual_train.dirty_table.id }}">
+                {% else %}
+                <div class="no-files-message">
+                    <p>No tables requiring manual review. All dirty tables are classified as 'valid'.</p>
+                </div>
+                {% endif %}
             {% endif %}
         </div>
     </div>
@@ -502,6 +570,66 @@
 
     // On page load, check for running jobs
     checkAndReconnect();
+
+    // Manual Train - Classification handling for both files and tables
+    var statusRadios = document.querySelectorAll('.status-radio');
+    var fileIdInput = document.getElementById('current-file-id');
+    var tableIdInput = document.getElementById('current-table-id');
+
+    statusRadios.forEach(function(radio) {
+        radio.addEventListener('change', function() {
+            var dataType = this.getAttribute('data-type');
+            var status = this.value;
+            var apiUrl, itemId;
+
+            if (dataType === 'file' && fileIdInput) {
+                itemId = fileIdInput.value;
+                apiUrl = '/api/file/' + itemId + '/classify';
+            } else if (dataType === 'table' && tableIdInput) {
+                itemId = tableIdInput.value;
+                apiUrl = '/api/db-table/' + itemId + '/classify';
+            } else {
+                return;
+            }
+
+            // Collect all checked important checkboxes (only for files)
+            var importantRowIds = [];
+            if (dataType === 'file') {
+                document.querySelectorAll('.important-checkbox:checked').forEach(function(cb) {
+                    importantRowIds.push(parseInt(cb.getAttribute('data-row-id')));
+                });
+            }
+
+            // Disable radios while processing
+            statusRadios.forEach(function(r) { r.disabled = true; });
+
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    status: status,
+                    important_row_ids: importantRowIds
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    statusRadios.forEach(function(r) { r.disabled = false; r.checked = false; });
+                    return;
+                }
+
+                // Success - reload to show next item
+                window.location.reload();
+            })
+            .catch(function(err) {
+                alert('Error classifying: ' + err);
+                statusRadios.forEach(function(r) { r.disabled = false; r.checked = false; });
+            });
+        });
+    });
 })();
 </script>
 

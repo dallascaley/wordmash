@@ -884,3 +884,60 @@ form.training-selectors label {
     margin: 0;
     color: #a0aec0;
 }
+
+/* Important checkbox in data viewer */
+.important-checkbox {
+    width: 16px;
+    height: 16px;
+    margin: 0 8px 0 10px;
+    cursor: pointer;
+    accent-color: #ed8936;
+    flex-shrink: 0;
+}
+
+.code-line:has(.important-checkbox) {
+    align-items: center;
+}
+
+/* Classification controls */
+.classification-controls {
+    margin-top: 20px;
+    padding: 15px 20px;
+    background: var(--secondary);
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+}
+
+.classification-radio-group {
+    display: flex;
+    gap: 30px;
+}
+
+.classification-radio-group .radio-label {
+    padding: 10px 25px;
+    font-size: 1rem;
+    cursor: pointer;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.classification-radio-group .radio-label:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.classification-radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: bold;
+}
+
+.classification-radio-group .radio-label:has(input[value="valid"]:checked) {
+    border-color: #48bb78;
+    background: rgba(72, 187, 120, 0.1);
+}
+
+.classification-radio-group .radio-label:has(input[value="bad"]:checked) {
+    border-color: #f56565;
+    background: rgba(245, 101, 101, 0.1);
+}

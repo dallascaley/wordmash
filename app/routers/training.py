@@ -107,6 +107,11 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         "dirty_lines": [],
         "clean_lines": [],
         "has_clean_match": False,
+        "dirty_table": None,
+        "clean_table": None,
+        "dirty_rows": [],
+        "clean_rows": [],
+        "has_clean_table_match": False,
     }
 
     if project_id and data_type == "files":
@@ -128,7 +133,7 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
 
             # Get all lines from dirty file
             cursor.execute("""
-                SELECT id, text, status
+                SELECT id, text, status, important
                 FROM file_rows
                 WHERE file_id = %s
                 ORDER BY id
@@ -157,6 +162,58 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
                     ORDER BY id
                 """, (clean_file["id"],))
                 manual_train["clean_lines"] = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+    if project_id and data_type == "data":
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        # Find first dirty table with status != 'valid' (bad, mixed, research, or NULL)
+        cursor.execute("""
+            SELECT id, table_name, status
+            FROM db_tables
+            WHERE project_id = %s AND is_dirty = 1 AND (status IS NULL OR status != 'valid')
+            ORDER BY id
+            LIMIT 1
+        """, (project_id,))
+        dirty_table = cursor.fetchone()
+
+        if dirty_table:
+            manual_train["dirty_table"] = dirty_table
+
+            # Get all rows from dirty table
+            cursor.execute("""
+                SELECT id, field_name, contents, status, important
+                FROM db_table_rows
+                WHERE table_id = %s
+                ORDER BY id
+            """, (dirty_table["id"],))
+            manual_train["dirty_rows"] = cursor.fetchall()
+
+            # Find matching clean table
+            cursor.execute("""
+                SELECT id, table_name
+                FROM db_tables
+                WHERE project_id = %s AND is_dirty = 0
+                    AND table_name = %s
+                LIMIT 1
+            """, (project_id, dirty_table["table_name"]))
+            clean_table = cursor.fetchone()
+
+            if clean_table:
+                manual_train["clean_table"] = clean_table
+                manual_train["has_clean_table_match"] = True
+
+                # Get all rows from clean table
+                cursor.execute("""
+                    SELECT id, field_name, contents
+                    FROM db_table_rows
+                    WHERE table_id = %s
+                    ORDER BY id
+                """, (clean_table["id"],))
+                manual_train["clean_rows"] = cursor.fetchall()
 
         cursor.close()
         conn.close()
@@ -753,6 +810,170 @@ def clear_training_data(project_id: int):
             "tables": tables_cleared,
             "rows": rows_cleared
         }
+    })
+
+
+@router.post("/api/file/{file_id}/classify")
+async def classify_file(file_id: int, request: Request):
+    """
+    Classify a file and all its rows with the given status.
+    Also updates the 'important' field for specified row IDs.
+
+    Request body:
+    {
+        "status": "valid" | "bad",
+        "important_row_ids": [1, 2, 3]  // IDs of rows to mark as important
+    }
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # Verify file exists
+    cursor.execute("SELECT id, file_name FROM files WHERE id = %s", (file_id,))
+    file = cursor.fetchone()
+    if not file:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "File not found"}, status_code=404)
+
+    # Parse request body
+    try:
+        body = await request.json()
+    except:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    status = body.get("status")
+    important_row_ids = body.get("important_row_ids", [])
+
+    if status not in ("valid", "bad"):
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Status must be 'valid' or 'bad'"}, status_code=400)
+
+    # Update the file status
+    cursor.execute(
+        "UPDATE files SET status = %s WHERE id = %s",
+        (status, file_id)
+    )
+
+    # Update all file_rows status for this file
+    cursor.execute(
+        "UPDATE file_rows SET status = %s WHERE file_id = %s",
+        (status, file_id)
+    )
+    rows_updated = cursor.rowcount
+
+    # Reset all important flags first
+    cursor.execute(
+        "UPDATE file_rows SET important = 0 WHERE file_id = %s",
+        (file_id,)
+    )
+
+    # Set important flag for specified rows
+    important_count = 0
+    if important_row_ids:
+        # Validate that these rows belong to this file
+        placeholders = ",".join(["%s"] * len(important_row_ids))
+        cursor.execute(
+            f"UPDATE file_rows SET important = 1 WHERE file_id = %s AND id IN ({placeholders})",
+            [file_id] + list(important_row_ids)
+        )
+        important_count = cursor.rowcount
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return JSONResponse({
+        "success": True,
+        "file_id": file_id,
+        "status": status,
+        "rows_updated": rows_updated,
+        "important_count": important_count
+    })
+
+
+@router.post("/api/db-table/{table_id}/classify")
+async def classify_db_table_async(table_id: int, request: Request):
+    """
+    Classify a db_table and all its rows with the given status.
+    Also updates the 'important' field for specified row IDs.
+
+    Request body:
+    {
+        "status": "valid" | "bad",
+        "important_row_ids": [1, 2, 3]  // IDs of rows to mark as important
+    }
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # Verify table exists
+    cursor.execute("SELECT id, table_name FROM db_tables WHERE id = %s", (table_id,))
+    table = cursor.fetchone()
+    if not table:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Table not found"}, status_code=404)
+
+    # Parse request body
+    try:
+        body = await request.json()
+    except:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    status = body.get("status")
+    important_row_ids = body.get("important_row_ids", [])
+
+    if status not in ("valid", "bad"):
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Status must be 'valid' or 'bad'"}, status_code=400)
+
+    # Update the db_table status
+    cursor.execute(
+        "UPDATE db_tables SET status = %s WHERE id = %s",
+        (status, table_id)
+    )
+
+    # Update all db_table_rows status for this table
+    cursor.execute(
+        "UPDATE db_table_rows SET status = %s WHERE table_id = %s",
+        (status, table_id)
+    )
+    rows_updated = cursor.rowcount
+
+    # Reset all important flags first
+    cursor.execute(
+        "UPDATE db_table_rows SET important = 0 WHERE table_id = %s",
+        (table_id,)
+    )
+
+    # Set important flag for specified rows
+    important_count = 0
+    if important_row_ids:
+        # Validate that these rows belong to this table
+        placeholders = ",".join(["%s"] * len(important_row_ids))
+        cursor.execute(
+            f"UPDATE db_table_rows SET important = 1 WHERE table_id = %s AND id IN ({placeholders})",
+            [table_id] + list(important_row_ids)
+        )
+        important_count = cursor.rowcount
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return JSONResponse({
+        "success": True,
+        "table_id": table_id,
+        "status": status,
+        "rows_updated": rows_updated,
+        "important_count": important_count
     })
 
 
