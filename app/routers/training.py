@@ -118,11 +118,12 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         conn = get_conn()
         cursor = conn.cursor()
 
-        # Find first dirty file with status != 'valid' (bad, mixed, research, or NULL)
+        # Find first dirty file needing review (mixed, research, or NULL - not valid/bad)
         cursor.execute("""
             SELECT id, file_name, path, status
             FROM files
-            WHERE project_id = %s AND is_dirty = 1 AND (status IS NULL OR status != 'valid')
+            WHERE project_id = %s AND is_dirty = 1
+                AND (status IS NULL OR status IN ('mixed', 'research'))
             ORDER BY id
             LIMIT 1
         """, (project_id,))
@@ -170,11 +171,12 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         conn = get_conn()
         cursor = conn.cursor()
 
-        # Find first dirty table with status != 'valid' (bad, mixed, research, or NULL)
+        # Find first dirty table needing review (mixed, research, or NULL - not valid/bad)
         cursor.execute("""
             SELECT id, table_name, status
             FROM db_tables
-            WHERE project_id = %s AND is_dirty = 1 AND (status IS NULL OR status != 'valid')
+            WHERE project_id = %s AND is_dirty = 1
+                AND (status IS NULL OR status IN ('mixed', 'research'))
             ORDER BY id
             LIMIT 1
         """, (project_id,))
