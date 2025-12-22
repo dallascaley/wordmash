@@ -223,6 +223,7 @@
                             <span>Bad</span>
                         </label>
                     </div>
+                    <button type="button" id="classify-btn" class="classify-btn" data-type="file">Submit</button>
                 </div>
                 <input type="hidden" id="current-file-id" value="{{ manual_train.dirty_file.id }}">
                 {% else %}
@@ -281,6 +282,7 @@
                             <span>Bad</span>
                         </label>
                     </div>
+                    <button type="button" id="classify-btn" class="classify-btn" data-type="table">Submit</button>
                 </div>
                 <input type="hidden" id="current-table-id" value="{{ manual_train.dirty_table.id }}">
                 {% else %}
@@ -572,25 +574,34 @@
     checkAndReconnect();
 
     // Manual Train - Classification handling for both files and tables
-    var statusRadios = document.querySelectorAll('.status-radio');
+    var classifyBtn = document.getElementById('classify-btn');
     var fileIdInput = document.getElementById('current-file-id');
     var tableIdInput = document.getElementById('current-table-id');
 
-    statusRadios.forEach(function(radio) {
-        radio.addEventListener('change', function() {
+    if (classifyBtn) {
+        classifyBtn.addEventListener('click', function() {
             var dataType = this.getAttribute('data-type');
-            var status = this.value;
-            var apiUrl, itemId;
+            var apiUrl, itemId, statusRadioName;
 
             if (dataType === 'file' && fileIdInput) {
                 itemId = fileIdInput.value;
                 apiUrl = '/api/file/' + itemId + '/classify';
+                statusRadioName = 'file_status';
             } else if (dataType === 'table' && tableIdInput) {
                 itemId = tableIdInput.value;
                 apiUrl = '/api/db-table/' + itemId + '/classify';
+                statusRadioName = 'table_status';
             } else {
                 return;
             }
+
+            // Get selected status
+            var selectedRadio = document.querySelector('input[name="' + statusRadioName + '"]:checked');
+            if (!selectedRadio) {
+                alert('Please select Valid or Bad');
+                return;
+            }
+            var status = selectedRadio.value;
 
             // Collect all checked important checkboxes (only for files)
             var importantRowIds = [];
@@ -600,8 +611,9 @@
                 });
             }
 
-            // Disable radios while processing
-            statusRadios.forEach(function(r) { r.disabled = true; });
+            // Disable button while processing
+            classifyBtn.disabled = true;
+            classifyBtn.textContent = 'Submitting...';
 
             fetch(apiUrl, {
                 method: 'POST',
@@ -617,7 +629,8 @@
             .then(function(data) {
                 if (data.error) {
                     alert('Error: ' + data.error);
-                    statusRadios.forEach(function(r) { r.disabled = false; r.checked = false; });
+                    classifyBtn.disabled = false;
+                    classifyBtn.textContent = 'Submit';
                     return;
                 }
 
@@ -626,10 +639,11 @@
             })
             .catch(function(err) {
                 alert('Error classifying: ' + err);
-                statusRadios.forEach(function(r) { r.disabled = false; r.checked = false; });
+                classifyBtn.disabled = false;
+                classifyBtn.textContent = 'Submit';
             });
         });
-    });
+    }
 })();
 </script>
 

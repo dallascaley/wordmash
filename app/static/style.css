@@ -941,3 +941,26 @@ form.training-selectors label {
     border-color: #f56565;
     background: rgba(245, 101, 101, 0.1);
 }
+
+/* Classify submit button */
+.classify-btn {
+    padding: 10px 30px;
+    font-size: 1rem;
+    font-weight: bold;
+    background: var(--accent);
+    color: var(--primary);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-left: 20px;
+    transition: all 0.2s ease;
+}
+
+.classify-btn:hover {
+    background: #e07730;
+}
+
+.classify-btn:disabled {
+    background: #666;
+    cursor: not-allowed;
+}
