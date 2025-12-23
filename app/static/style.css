@@ -827,6 +827,8 @@ form.training-selectors label {
     display: flex;
     padding: 2px 0;
     border-bottom: 1px solid rgba(74, 85, 104, 0.3);
+    min-height: 24px;
+    align-items: center;
 }
 
 .code-line:hover {
@@ -895,9 +897,6 @@ form.training-selectors label {
     flex-shrink: 0;
 }
 
-.code-line:has(.important-checkbox) {
-    align-items: center;
-}
 
 /* Classification controls */
 .classification-controls {

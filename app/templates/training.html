@@ -357,10 +357,31 @@
 
     // Accordion functionality
     var headers = document.querySelectorAll('.accordion-header');
+    var STORAGE_KEY = 'training_accordion_section';
+
+    function openSection(section) {
+        // Close all sections
+        headers.forEach(function(h) {
+            h.classList.remove('active');
+            h.querySelector('.accordion-arrow').innerHTML = '&#9654;';
+        });
+        document.querySelectorAll('.accordion-content').forEach(function(c) {
+            c.classList.add('collapsed');
+        });
+
+        // Open the specified section
+        var header = document.querySelector('.accordion-header[data-section="' + section + '"]');
+        var content = document.getElementById(section + '-content');
+        if (header && content) {
+            header.classList.add('active');
+            header.querySelector('.accordion-arrow').innerHTML = '&#9660;';
+            content.classList.remove('collapsed');
+        }
+    }
+
     headers.forEach(function(header) {
         header.addEventListener('click', function() {
             var section = this.getAttribute('data-section');
-            var content = document.getElementById(section + '-content');
             var isActive = this.classList.contains('active');
 
             // Close all sections
@@ -376,10 +397,21 @@
             if (!isActive) {
                 this.classList.add('active');
                 this.querySelector('.accordion-arrow').innerHTML = '&#9660;';
-                content.classList.remove('collapsed');
+                document.getElementById(section + '-content').classList.remove('collapsed');
+                // Save to localStorage
+                localStorage.setItem(STORAGE_KEY, section);
+            } else {
+                // Section was closed, remove from localStorage
+                localStorage.removeItem(STORAGE_KEY);
             }
         });
     });
+
+    // Restore last opened section from localStorage
+    var savedSection = localStorage.getItem(STORAGE_KEY);
+    if (savedSection) {
+        openSection(savedSection);
+    }
 
     function updateProgressFromData(data) {
         // Update files
