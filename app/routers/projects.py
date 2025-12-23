@@ -1354,6 +1354,156 @@ async def scan_db_rows_background_task(job_id: int, project_id: int, db_name: st
             conn.close()
 
 
+def populate_branches_for_dirty_type(cursor, conn, project_id: int, is_dirty: int):
+    """
+    Populate branches for a specific is_dirty type (0=clean, 1=dirty).
+    Returns the number of branches created.
+    """
+    # Get aggregated counts for each path in a single query
+    cursor.execute("""
+        SELECT
+            path,
+            COUNT(*) as total,
+            SUM(CASE WHEN status = 'valid' THEN 1 ELSE 0 END) as valids,
+            SUM(CASE WHEN status = 'bad' THEN 1 ELSE 0 END) as bads,
+            SUM(CASE WHEN status = 'mixed' THEN 1 ELSE 0 END) as mixeds,
+            SUM(CASE WHEN status = 'research' THEN 1 ELSE 0 END) as researchs,
+            SUM(CASE WHEN status IS NULL THEN 1 ELSE 0 END) as nulls
+        FROM files
+        WHERE project_id = %s AND is_dirty = %s
+        GROUP BY path
+    """, (project_id, is_dirty))
+    path_counts = {row["path"]: row for row in cursor.fetchall()}
+
+    if not path_counts:
+        return 0
+
+    # Build set of all paths including parent paths
+    all_paths = set()
+    for path in path_counts.keys():
+        all_paths.add(path)
+        parts = path.split('/') if path else []
+        for i in range(len(parts)):
+            parent = '/'.join(parts[:i])
+            all_paths.add(parent)
+
+    # Build child relationships for sub_folder counting
+    # We need to iterate over ALL paths (not just path_counts) to properly build the tree
+    direct_children = {}  # parent_path -> set of direct child folder names
+    for path in all_paths:
+        if path == '':
+            continue
+        parts = path.split('/')
+        # For each level, record the direct child
+        for i in range(len(parts)):
+            parent = '/'.join(parts[:i]) if i > 0 else ''
+            child_name = parts[i]
+            if parent not in direct_children:
+                direct_children[parent] = set()
+            direct_children[parent].add(child_name)
+
+    # Calculate cumulative counts for each path (including subfolders)
+    # Sort paths by number of components (deepest first) so we can aggregate up
+    # Using len(split('/')) ensures root '' (0 components) is processed last
+    sorted_paths = sorted(all_paths, key=lambda p: len(p.split('/')) if p else 0, reverse=True)
+
+    cumulative = {}
+    for path in sorted_paths:
+        # Start with direct counts for this path
+        if path in path_counts:
+            row = path_counts[path]
+            cumulative[path] = {
+                'files': row['total'],
+                'valids': row['valids'] or 0,
+                'bads': row['bads'] or 0,
+                'mixeds': row['mixeds'] or 0,
+                'researchs': row['researchs'] or 0,
+                'nulls': row['nulls'] or 0
+            }
+        else:
+            cumulative[path] = {
+                'files': 0, 'valids': 0, 'bads': 0,
+                'mixeds': 0, 'researchs': 0, 'nulls': 0
+            }
+
+        # Add counts from direct child paths
+        if path in direct_children:
+            for child_name in direct_children[path]:
+                child_path = f"{path}/{child_name}" if path else child_name
+                if child_path in cumulative:
+                    for key in cumulative[path]:
+                        cumulative[path][key] += cumulative[child_path][key]
+
+    # Build branches data
+    branches_data = []
+    for path in all_paths:
+        sub_folders = len(direct_children.get(path, set()))
+        counts = cumulative[path]
+        branches_data.append((
+            project_id,
+            is_dirty,
+            path,
+            sub_folders,
+            counts['files'],
+            counts['valids'],
+            counts['bads'],
+            counts['mixeds'],
+            counts['researchs'],
+            counts['nulls']
+        ))
+
+    # Batch insert branches
+    if branches_data:
+        cursor.executemany("""
+            INSERT INTO branches (project_id, is_dirty, path, sub_folders, files, valids, bads, mixeds, researchs, nulls)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, branches_data)
+        conn.commit()
+
+    return len(branches_data)
+
+
+def populate_branches(project_id: int):
+    """
+    Populate the branches table with aggregated counts for each unique path.
+    Handles both dirty (is_dirty=1) and clean (is_dirty=0) files.
+    For each path, counts:
+    - sub_folders: number of direct child folders
+    - files: total files in this folder and all subfolders
+    - valids, bads, mixeds, researchs, nulls: file counts by status
+
+    Uses an efficient single-query approach to get all file counts,
+    then aggregates in Python for parent folders.
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    try:
+        # Clear existing branches for this project
+        cursor.execute("DELETE FROM branches WHERE project_id = %s", (project_id,))
+        conn.commit()
+
+        # Populate branches for both dirty and clean files
+        dirty_count = populate_branches_for_dirty_type(cursor, conn, project_id, 1)
+        clean_count = populate_branches_for_dirty_type(cursor, conn, project_id, 0)
+
+        return dirty_count + clean_count
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@router.post("/project/{project_id}/populate-branches")
+def populate_branches_endpoint(project_id: int):
+    """API endpoint to populate branches for a project."""
+    try:
+        count = populate_branches(project_id)
+        return JSONResponse({"success": True, "branches_count": count})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
 @router.post("/project/{project_id}/scan/db-rows/start")
 async def start_scan_db_rows(project_id: int, is_dirty: int = 1):
     """
