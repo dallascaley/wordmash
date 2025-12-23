@@ -859,7 +859,8 @@ form.training-selectors label {
 .line-text {
     flex: 1;
     padding: 0 10px;
-    white-space: pre;
+    white-space: pre-wrap;
+    word-break: break-word;
     color: var(--text-light);
 }
 
