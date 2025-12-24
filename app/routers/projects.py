@@ -1439,6 +1439,18 @@ def populate_branches_for_dirty_type(cursor, conn, project_id: int, is_dirty: in
     for path in all_paths:
         sub_folders = len(direct_children.get(path, set()))
         counts = cumulative[path]
+
+        # Calculate is_root: true if none of the path components exist as paths in all_paths
+        # e.g., 'gymji' is root if no other row has path='gymji' as a parent
+        # 'gymji/ckeditor' is NOT root because 'gymji' exists as a path
+        is_root = 1
+        if path:
+            parts = path.split('/')
+            for part in parts:
+                if part in all_paths and part != path:
+                    is_root = 0
+                    break
+
         branches_data.append((
             project_id,
             is_dirty,
@@ -1449,14 +1461,15 @@ def populate_branches_for_dirty_type(cursor, conn, project_id: int, is_dirty: in
             counts['bads'],
             counts['mixeds'],
             counts['researchs'],
-            counts['nulls']
+            counts['nulls'],
+            is_root
         ))
 
     # Batch insert branches
     if branches_data:
         cursor.executemany("""
-            INSERT INTO branches (project_id, is_dirty, path, sub_folders, files, valids, bads, mixeds, researchs, nulls)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO branches (project_id, is_dirty, path, sub_folders, files, valids, bads, mixeds, researchs, nulls, is_root)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, branches_data)
         conn.commit()
 
