@@ -181,30 +181,46 @@
                     <div class="file-panel">
                         <div class="panel-header">Dirty File</div>
                         <div class="file-content">
-                            {% for line in manual_train.dirty_lines %}
-                            <div class="code-line {% if line.status %}line-{{ line.status }}{% endif %}">
-                                <input type="checkbox" class="important-checkbox" data-row-id="{{ line.id }}" {% if line.important %}checked{% endif %}>
-                                <span class="line-number">{{ loop.index }}</span>
-                                <span class="line-text">{{ line.text or '' }}</span>
-                            </div>
-                            {% endfor %}
-                            {% if not manual_train.dirty_lines %}
-                            <div class="empty-message">No lines in file</div>
+                            {% if manual_train.is_binary %}
+                            <div class="binary-file-message">Binary File - Contents cannot be displayed</div>
+                            {% elif manual_train.file_too_large %}
+                            <div class="large-file-message">File too large to display ({{ manual_train.line_count }} lines)</div>
+                            {% else %}
+                                {% for line in manual_train.dirty_lines %}
+                                <div class="code-line {% if line.status %}line-{{ line.status }}{% endif %}">
+                                    <input type="checkbox" class="important-checkbox" data-row-id="{{ line.id }}" {% if line.important %}checked{% endif %}>
+                                    <span class="line-number">{{ loop.index }}</span>
+                                    <span class="line-text">{{ line.text or '' }}</span>
+                                </div>
+                                {% endfor %}
+                                {% if not manual_train.dirty_lines %}
+                                <div class="empty-message">No lines in file</div>
+                                {% endif %}
                             {% endif %}
                         </div>
                     </div>
                     <div class="file-panel">
                         <div class="panel-header">Clean File</div>
                         <div class="file-content">
-                            {% if manual_train.has_clean_match %}
-                                {% for line in manual_train.clean_lines %}
-                                <div class="code-line">
-                                    <span class="line-number">{{ loop.index }}</span>
-                                    <span class="line-text">{{ line.text or '' }}</span>
-                                </div>
-                                {% endfor %}
-                                {% if not manual_train.clean_lines %}
-                                <div class="empty-message">No lines in file</div>
+                            {% if manual_train.is_binary %}
+                            <div class="binary-file-message">Binary File - Contents cannot be displayed</div>
+                            {% elif manual_train.file_too_large %}
+                            <div class="large-file-message">File too large to display</div>
+                            {% elif manual_train.has_clean_match %}
+                                {% if manual_train.clean_is_binary %}
+                                <div class="binary-file-message">Binary File - Contents cannot be displayed</div>
+                                {% elif manual_train.clean_file_too_large %}
+                                <div class="large-file-message">File too large to display ({{ manual_train.clean_line_count }} lines)</div>
+                                {% else %}
+                                    {% for line in manual_train.clean_lines %}
+                                    <div class="code-line">
+                                        <span class="line-number">{{ loop.index }}</span>
+                                        <span class="line-text">{{ line.text or '' }}</span>
+                                    </div>
+                                    {% endfor %}
+                                    {% if not manual_train.clean_lines %}
+                                    <div class="empty-message">No lines in file</div>
+                                    {% endif %}
                                 {% endif %}
                             {% else %}
                             <div class="no-match-message">No matching file</div>

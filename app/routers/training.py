@@ -116,6 +116,10 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         "has_clean_table_match": False,
     }
 
+    # Configuration for file loading limits
+    MAX_LINES_TO_LOAD = 5000  # Maximum number of lines to load for display
+    MAX_LINE_LENGTH = 10000  # Maximum characters per line before truncation
+
     if project_id and data_type == "files":
         conn = get_conn()
         cursor = conn.cursor()
@@ -123,7 +127,7 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         # Find first dirty file needing review (mixed, research, or NULL - not valid/bad)
         # Excludes quarantine folder
         cursor.execute("""
-            SELECT id, file_name, path, status
+            SELECT id, file_name, path, status, is_binary
             FROM files
             WHERE project_id = %s AND is_dirty = 1
                 AND (status IS NULL OR status IN ('mixed', 'research'))
@@ -136,18 +140,34 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         if dirty_file:
             manual_train["dirty_file"] = dirty_file
 
-            # Get all lines from dirty file
-            cursor.execute("""
-                SELECT id, text, status, important
-                FROM file_rows
-                WHERE file_id = %s
-                ORDER BY id
-            """, (dirty_file["id"],))
-            manual_train["dirty_lines"] = cursor.fetchall()
+            # Check if file is binary - don't load contents for binary files
+            if dirty_file.get("is_binary"):
+                manual_train["dirty_lines"] = []
+                manual_train["is_binary"] = True
+            else:
+                # Check line count before loading
+                cursor.execute("""
+                    SELECT COUNT(*) as cnt FROM file_rows WHERE file_id = %s
+                """, (dirty_file["id"],))
+                line_count = cursor.fetchone()["cnt"]
+
+                if line_count > MAX_LINES_TO_LOAD:
+                    manual_train["dirty_lines"] = []
+                    manual_train["file_too_large"] = True
+                    manual_train["line_count"] = line_count
+                else:
+                    # Get all lines from dirty file
+                    cursor.execute("""
+                        SELECT id, text, status, important
+                        FROM file_rows
+                        WHERE file_id = %s
+                        ORDER BY id
+                    """, (dirty_file["id"],))
+                    manual_train["dirty_lines"] = cursor.fetchall()
 
             # Find matching clean file
             cursor.execute("""
-                SELECT id, file_name, path
+                SELECT id, file_name, path, is_binary
                 FROM files
                 WHERE project_id = %s AND is_dirty = 0
                     AND file_name = %s AND path = %s
@@ -159,14 +179,32 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
                 manual_train["clean_file"] = clean_file
                 manual_train["has_clean_match"] = True
 
-                # Get all lines from clean file
-                cursor.execute("""
-                    SELECT id, text
-                    FROM file_rows
-                    WHERE file_id = %s
-                    ORDER BY id
-                """, (clean_file["id"],))
-                manual_train["clean_lines"] = cursor.fetchall()
+                # Only load clean file lines if dirty file was also loaded (not binary/too large)
+                if not manual_train.get("is_binary") and not manual_train.get("file_too_large"):
+                    # Check if clean file is binary
+                    if clean_file.get("is_binary"):
+                        manual_train["clean_lines"] = []
+                        manual_train["clean_is_binary"] = True
+                    else:
+                        # Check line count before loading
+                        cursor.execute("""
+                            SELECT COUNT(*) as cnt FROM file_rows WHERE file_id = %s
+                        """, (clean_file["id"],))
+                        clean_line_count = cursor.fetchone()["cnt"]
+
+                        if clean_line_count > MAX_LINES_TO_LOAD:
+                            manual_train["clean_lines"] = []
+                            manual_train["clean_file_too_large"] = True
+                            manual_train["clean_line_count"] = clean_line_count
+                        else:
+                            # Get all lines from clean file
+                            cursor.execute("""
+                                SELECT id, text
+                                FROM file_rows
+                                WHERE file_id = %s
+                                ORDER BY id
+                            """, (clean_file["id"],))
+                            manual_train["clean_lines"] = cursor.fetchall()
 
         cursor.close()
         conn.close()

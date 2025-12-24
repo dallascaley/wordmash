@@ -876,6 +876,25 @@ form.training-selectors label {
     color: #ed8936;
 }
 
+.binary-file-message,
+.large-file-message {
+    padding: 60px 20px;
+    text-align: center;
+    color: #a0aec0;
+    font-size: 1.1em;
+    background: rgba(113, 128, 150, 0.1);
+    border-radius: 4px;
+    margin: 10px;
+}
+
+.binary-file-message {
+    color: #805ad5;
+}
+
+.large-file-message {
+    color: #dd6b20;
+}
+
 .no-files-message {
     background: var(--secondary);
     padding: 30px;
