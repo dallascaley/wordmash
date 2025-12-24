@@ -1,0 +1,312 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Homogeneous Branches</h2>
+
+<p>Showing dirty root branches where all files have the same classification status.</p>
+
+<table class="branches-table">
+    <thead>
+        <tr>
+            <th>Path</th>
+            <th>Folders</th>
+            <th>Files</th>
+            <th>Type</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for branch in branches %}
+        <tr>
+            <td>{{ branch.path }}</td>
+            <td>{{ branch.sub_folders }}</td>
+            <td>{{ branch.files }}</td>
+            <td>
+                <span class="type-badge type-{{ branch.type }}">{{ branch.type }}</span>
+            </td>
+            <td>
+                <button class="action-btn inspect-btn" data-branch-id="{{ branch.id }}" data-branch-path="{{ branch.path }}">Inspect</button>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="5" style="text-align: center; color: #718096;">No homogeneous branches found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Inspect Modal -->
+<div id="inspect-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modal-title">Folder Structure</h3>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="tree-container"></div>
+        </div>
+    </div>
+</div>
+
+<style>
+.branches-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.branches-table th,
+.branches-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid #2d3748;
+}
+
+.branches-table th {
+    background: #1a202c;
+    color: #a0aec0;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.branches-table tr:hover {
+    background: #2d3748;
+}
+
+.type-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.type-valid { background: #48bb78; color: #1a202c; }
+.type-bad { background: #f56565; color: #1a202c; }
+.type-mixed { background: #ed8936; color: #1a202c; }
+.type-research { background: #4299e1; color: #1a202c; }
+.type-none { background: #718096; color: #1a202c; }
+
+.action-btn {
+    padding: 0.25rem 0.75rem;
+    background: #4a5568;
+    color: #e2e8f0;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.action-btn:hover:not(:disabled) {
+    background: #2b6cb0;
+}
+
+.action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Modal styles */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.open {
+    display: flex;
+}
+
+.modal-content {
+    background: #1a202c;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #2d3748;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #e2e8f0;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: #a0aec0;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #e2e8f0;
+}
+
+.modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+/* Tree styles */
+.tree-node {
+    position: relative;
+    padding-left: 24px;
+}
+
+.tree-node::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #4a5568;
+}
+
+.tree-node:last-child::before {
+    height: 14px;
+}
+
+.tree-item {
+    position: relative;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tree-item::before {
+    content: '';
+    position: absolute;
+    left: -16px;
+    top: 50%;
+    width: 12px;
+    height: 1px;
+    background: #4a5568;
+}
+
+.tree-root > .tree-item::before {
+    display: none;
+}
+
+.tree-root {
+    padding-left: 0;
+}
+
+.tree-root::before {
+    display: none;
+}
+
+.folder-icon {
+    color: #ecc94b;
+    font-size: 1rem;
+}
+
+.folder-name {
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.file-count {
+    color: #718096;
+    font-size: 0.875rem;
+}
+
+.tree-children {
+    margin-left: 0;
+}
+</style>
+
+<script>
+function closeModal() {
+    document.getElementById('inspect-modal').classList.remove('open');
+}
+
+function renderTree(node, isRoot) {
+    var html = '<div class="tree-node' + (isRoot ? ' tree-root' : '') + '">';
+    html += '<div class="tree-item">';
+    html += '<span class="folder-icon">&#128193;</span>';
+    html += '<span class="folder-name">' + escapeHtml(node.name) + '</span>';
+    html += '<span class="file-count">(' + node.files + ' files)</span>';
+    html += '</div>';
+
+    if (node.children && node.children.length > 0) {
+        html += '<div class="tree-children">';
+        for (var i = 0; i < node.children.length; i++) {
+            html += renderTree(node.children[i], false);
+        }
+        html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+document.querySelectorAll('.inspect-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var branchId = this.getAttribute('data-branch-id');
+        var branchPath = this.getAttribute('data-branch-path');
+
+        document.getElementById('modal-title').textContent = 'Folder Structure: ' + branchPath;
+        document.getElementById('tree-container').innerHTML = '<p style="color: #718096;">Loading...</p>';
+        document.getElementById('inspect-modal').classList.add('open');
+
+        fetch('/api/branches/' + branchId + '/structure')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    document.getElementById('tree-container').innerHTML = '<p style="color: #f56565;">Error: ' + data.error + '</p>';
+                    return;
+                }
+                document.getElementById('tree-container').innerHTML = renderTree(data.tree, true);
+            })
+            .catch(function(err) {
+                document.getElementById('tree-container').innerHTML = '<p style="color: #f56565;">Error loading structure</p>';
+            });
+    });
+});
+
+// Close modal on backdrop click
+document.getElementById('inspect-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeModal();
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeModal();
+    }
+});
+</script>
+{% endblock %}
