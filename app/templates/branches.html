@@ -25,6 +25,7 @@
             </td>
             <td>
                 <button class="action-btn inspect-btn" data-branch-id="{{ branch.id }}" data-branch-path="{{ branch.path }}">Inspect</button>
+                <button class="action-btn quarantine-btn" data-branch-id="{{ branch.id }}" data-branch-path="{{ branch.path }}">Quarantine</button>
             </td>
         </tr>
         {% else %}
@@ -102,6 +103,14 @@
 
 .action-btn:hover:not(:disabled) {
     background: #2b6cb0;
+}
+
+.quarantine-btn {
+    background: #c53030;
+}
+
+.quarantine-btn:hover:not(:disabled) {
+    background: #9b2c2c;
 }
 
 .action-btn:disabled {
@@ -307,6 +316,43 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         closeModal();
     }
+});
+
+// Quarantine button handler
+document.querySelectorAll('.quarantine-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var branchId = this.getAttribute('data-branch-id');
+        var branchPath = this.getAttribute('data-branch-path');
+        var button = this;
+
+        if (!confirm('Are you sure you want to quarantine "' + branchPath + '"?\n\nThis will move the folder to quarantine and delete all associated database records.')) {
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = 'Quarantining...';
+
+        fetch('/api/branches/' + branchId + '/quarantine', {
+            method: 'POST'
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                alert('Error: ' + data.error);
+                button.disabled = false;
+                button.textContent = 'Quarantine';
+                return;
+            }
+            alert('Quarantined successfully!\n\nFiles deleted: ' + data.files_deleted + '\nRows deleted: ' + data.rows_deleted);
+            // Remove the row from the table
+            button.closest('tr').remove();
+        })
+        .catch(function(err) {
+            alert('Error: ' + err);
+            button.disabled = false;
+            button.textContent = 'Quarantine';
+        });
+    });
 });
 </script>
 {% endblock %}

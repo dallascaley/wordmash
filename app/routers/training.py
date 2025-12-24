@@ -33,7 +33,7 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
         project = cursor.fetchone()
 
-        # Get all file stats in one query
+        # Get all file stats in one query (excluding quarantine)
         cursor.execute("""
             SELECT
                 COUNT(*) as total,
@@ -43,6 +43,7 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
                 SUM(CASE WHEN status = 'mixed' THEN 1 ELSE 0 END) as mixed_cnt,
                 SUM(CASE WHEN status = 'research' THEN 1 ELSE 0 END) as research_cnt
             FROM files WHERE project_id = %s AND is_dirty = 1
+            AND path != 'quarantine' AND path NOT LIKE 'quarantine/%%'
         """, (project_id,))
         file_stats = cursor.fetchone()
         stats["files"]["total"] = file_stats["total"] or 0
@@ -52,7 +53,7 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         stats["files"]["mixed"] = file_stats["mixed_cnt"] or 0
         stats["files"]["research"] = file_stats["research_cnt"] or 0
 
-        # Get all line stats in one query
+        # Get all line stats in one query (excluding quarantine)
         cursor.execute("""
             SELECT
                 COUNT(*) as total,
@@ -61,6 +62,7 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
             FROM file_rows fr
             JOIN files f ON fr.file_id = f.id
             WHERE f.project_id = %s AND fr.is_dirty = 1
+            AND f.path != 'quarantine' AND f.path NOT LIKE 'quarantine/%%'
         """, (project_id,))
         line_stats = cursor.fetchone()
         stats["lines"]["total"] = line_stats["total"] or 0
@@ -119,11 +121,13 @@ def training(request: Request, project_id: int = None, data_type: str = "files")
         cursor = conn.cursor()
 
         # Find first dirty file needing review (mixed, research, or NULL - not valid/bad)
+        # Excludes quarantine folder
         cursor.execute("""
             SELECT id, file_name, path, status
             FROM files
             WHERE project_id = %s AND is_dirty = 1
                 AND (status IS NULL OR status IN ('mixed', 'research'))
+                AND path != 'quarantine' AND path NOT LIKE 'quarantine/%%'
             ORDER BY id
             LIMIT 1
         """, (project_id,))
@@ -250,21 +254,24 @@ def _run_auto_train_sync(project_id: int, progress_callback):
     conn = get_conn()
     cursor = conn.cursor()
 
-    # Get counts for progress tracking
+    # Get counts for progress tracking (excluding quarantine)
     cursor.execute(
-        "SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1",
+        "SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 "
+        "AND path != 'quarantine' AND path NOT LIKE 'quarantine/%%'",
         (project_id,)
     )
     total_dirty_files = cursor.fetchone()["cnt"]
 
     cursor.execute(
-        "SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND is_binary = 1",
+        "SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND is_binary = 1 "
+        "AND path != 'quarantine' AND path NOT LIKE 'quarantine/%%'",
         (project_id,)
     )
     binary_files = cursor.fetchone()["cnt"]
 
     cursor.execute(
-        "SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND is_binary = 0",
+        "SELECT COUNT(*) as cnt FROM files WHERE project_id = %s AND is_dirty = 1 AND is_binary = 0 "
+        "AND path != 'quarantine' AND path NOT LIKE 'quarantine/%%'",
         (project_id,)
     )
     code_files = cursor.fetchone()["cnt"]
@@ -272,7 +279,8 @@ def _run_auto_train_sync(project_id: int, progress_callback):
     cursor.execute(
         "SELECT COUNT(*) as cnt FROM file_rows fr "
         "JOIN files f ON fr.file_id = f.id "
-        "WHERE f.project_id = %s AND fr.is_dirty = 1",
+        "WHERE f.project_id = %s AND fr.is_dirty = 1 "
+        "AND f.path != 'quarantine' AND f.path NOT LIKE 'quarantine/%%'",
         (project_id,)
     )
     total_dirty_lines = cursor.fetchone()["cnt"]
@@ -345,6 +353,7 @@ def _run_auto_train_sync(project_id: int, progress_callback):
     progress_callback("init", 0, make_progress_data())
 
     # PHASE 1: Mark files without clean counterparts as 'research' (bulk operation)
+    # Excludes quarantine folder
     cursor.execute("""
         UPDATE files d
         LEFT JOIN files c ON c.project_id = d.project_id
@@ -353,6 +362,7 @@ def _run_auto_train_sync(project_id: int, progress_callback):
             AND c.path = d.path
         SET d.status = 'research'
         WHERE d.project_id = %s AND d.is_dirty = 1 AND c.id IS NULL
+        AND d.path != 'quarantine' AND d.path NOT LIKE 'quarantine/%%'
     """, (project_id,))
     research_files_count = cursor.rowcount
     conn.commit()
@@ -376,7 +386,7 @@ def _run_auto_train_sync(project_id: int, progress_callback):
     overall_pct = round((files_processed / total_dirty_files) * 50) if total_dirty_files > 0 else 0
     progress_callback("files_phase1", overall_pct, make_progress_data())
 
-    # PHASE 2: Get dirty files that have clean counterparts
+    # PHASE 2: Get dirty files that have clean counterparts (excluding quarantine)
 
     cursor.execute("""
         SELECT d.id as dirty_id, c.id as clean_id
@@ -386,6 +396,7 @@ def _run_auto_train_sync(project_id: int, progress_callback):
             AND c.file_name = d.file_name
             AND c.path = d.path
         WHERE d.project_id = %s AND d.is_dirty = 1 AND d.status IS NULL
+        AND d.path != 'quarantine' AND d.path NOT LIKE 'quarantine/%%'
     """, (project_id,))
     file_pairs = cursor.fetchall()
 

@@ -101,15 +101,18 @@ def statistics(request: Request):
         "training_progress": 0.0,
     }
 
-    # Total files (dirty only - what we're classifying)
-    cursor.execute("SELECT COUNT(*) as cnt FROM files WHERE is_dirty = 1")
+    # Total files (dirty only - what we're classifying, excluding quarantine)
+    cursor.execute("""
+        SELECT COUNT(*) as cnt FROM files
+        WHERE is_dirty = 1 AND path != 'quarantine' AND path NOT LIKE 'quarantine/%%'
+    """)
     stats["total_files"] = cursor.fetchone()["cnt"]
 
-    # Total lines (dirty only)
+    # Total lines (dirty only, excluding quarantine)
     cursor.execute("""
         SELECT COUNT(*) as cnt FROM file_rows fr
         JOIN files f ON fr.file_id = f.id
-        WHERE fr.is_dirty = 1
+        WHERE fr.is_dirty = 1 AND f.path != 'quarantine' AND f.path NOT LIKE 'quarantine/%%'
     """)
     stats["total_lines"] = cursor.fetchone()["cnt"]
 
@@ -125,10 +128,10 @@ def statistics(request: Request):
     """)
     stats["total_db_rows"] = cursor.fetchone()["cnt"]
 
-    # File classification breakdown
+    # File classification breakdown (excluding quarantine)
     cursor.execute("""
         SELECT status, COUNT(*) as cnt FROM files
-        WHERE is_dirty = 1
+        WHERE is_dirty = 1 AND path != 'quarantine' AND path NOT LIKE 'quarantine/%%'
         GROUP BY status
     """)
     for row in cursor.fetchall():
@@ -141,11 +144,11 @@ def statistics(request: Request):
         elif row["status"] is None:
             stats["files_unclassified"] = row["cnt"]
 
-    # Line classification breakdown
+    # Line classification breakdown (excluding quarantine)
     cursor.execute("""
         SELECT fr.status, COUNT(*) as cnt FROM file_rows fr
         JOIN files f ON fr.file_id = f.id
-        WHERE fr.is_dirty = 1
+        WHERE fr.is_dirty = 1 AND f.path != 'quarantine' AND f.path NOT LIKE 'quarantine/%%'
         GROUP BY fr.status
     """)
     for row in cursor.fetchall():
@@ -280,3 +283,101 @@ def branches(request: Request):
         "branches.html",
         {"request": request, "branches": branches_list}
     )
+
+
+@app.post("/api/branches/{branch_id}/quarantine")
+def quarantine_branch(branch_id: int):
+    """
+    Quarantine a branch by moving its files to the quarantine folder
+    and deleting the associated database records.
+    """
+    import shutil
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    # Get the branch info
+    cursor.execute("SELECT * FROM branches WHERE id = %s", (branch_id,))
+    branch = cursor.fetchone()
+    if not branch:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Branch not found"}, status_code=404)
+
+    project_id = branch["project_id"]
+    branch_path = branch["path"]
+    is_dirty = branch["is_dirty"]
+
+    # Only allow quarantining dirty branches
+    if not is_dirty:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Can only quarantine dirty branches"}, status_code=400)
+
+    # Get the project's dirty_root
+    cursor.execute("SELECT dirty_root FROM projects WHERE id = %s", (project_id,))
+    project = cursor.fetchone()
+    if not project:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": "Project not found"}, status_code=404)
+
+    dirty_root = project["dirty_root"]
+    source_path = os.path.join(dirty_root, branch_path)
+    quarantine_base = os.path.join(dirty_root, "quarantine")
+    dest_path = os.path.join(quarantine_base, branch_path)
+
+    # Check if source exists
+    if not os.path.exists(source_path):
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": f"Source path does not exist: {source_path}"}, status_code=404)
+
+    # Create quarantine directory structure
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+    # Move the folder
+    try:
+        shutil.move(source_path, dest_path)
+    except Exception as e:
+        cursor.close()
+        conn.close()
+        return JSONResponse({"error": f"Failed to move folder: {str(e)}"}, status_code=500)
+
+    # Delete file_rows for files in this path and subpaths
+    cursor.execute("""
+        DELETE fr FROM file_rows fr
+        JOIN files f ON fr.file_id = f.id
+        WHERE f.project_id = %s AND f.is_dirty = %s
+        AND (f.path = %s OR f.path LIKE %s)
+    """, (project_id, is_dirty, branch_path, branch_path + "/%"))
+    rows_deleted = cursor.rowcount
+
+    # Delete files in this path and subpaths
+    cursor.execute("""
+        DELETE FROM files
+        WHERE project_id = %s AND is_dirty = %s
+        AND (path = %s OR path LIKE %s)
+    """, (project_id, is_dirty, branch_path, branch_path + "/%"))
+    files_deleted = cursor.rowcount
+
+    # Delete branches for this path and subpaths
+    cursor.execute("""
+        DELETE FROM branches
+        WHERE project_id = %s AND is_dirty = %s
+        AND (path = %s OR path LIKE %s)
+    """, (project_id, is_dirty, branch_path, branch_path + "/%"))
+    branches_deleted = cursor.rowcount
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return JSONResponse({
+        "success": True,
+        "path": branch_path,
+        "quarantine_path": dest_path,
+        "files_deleted": files_deleted,
+        "rows_deleted": rows_deleted,
+        "branches_deleted": branches_deleted
+    })

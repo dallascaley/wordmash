@@ -164,11 +164,18 @@ def scan_files_generator(project_id: int, root_path: str, is_dirty: int):
     """
     Generator that yields file count updates during scanning.
     Yields progress dicts every 50 files, then a complete dict with all files.
+    Skips the 'quarantine' folder for dirty files.
     """
     files_to_insert = []
     count = 0
 
     for root, dirs, files in os.walk(root_path):
+        # Skip quarantine folder for dirty files
+        if is_dirty:
+            dirs[:] = [d for d in dirs if d != 'quarantine']
+            relative_dir = os.path.relpath(root, root_path)
+            if relative_dir == 'quarantine' or relative_dir.startswith('quarantine/'):
+                continue
         for file_name in files:
             full_path = os.path.join(root, file_name)
 
@@ -223,6 +230,13 @@ def scan_files(request: Request, project_id: int, is_dirty: int = 1):
 
     files_to_insert = []
     for root, dirs, files in os.walk(root_path):
+        # Skip quarantine folder for dirty files
+        if is_dirty:
+            dirs[:] = [d for d in dirs if d != 'quarantine']
+            rel_check = os.path.relpath(root, root_path)
+            if rel_check == 'quarantine' or rel_check.startswith('quarantine/'):
+                continue
+
         for file_name in files:
             full_path = os.path.join(root, file_name)
 
@@ -1358,21 +1372,39 @@ def populate_branches_for_dirty_type(cursor, conn, project_id: int, is_dirty: in
     """
     Populate branches for a specific is_dirty type (0=clean, 1=dirty).
     Returns the number of branches created.
+    Excludes quarantine folder for dirty files.
     """
     # Get aggregated counts for each path in a single query
-    cursor.execute("""
-        SELECT
-            path,
-            COUNT(*) as total,
-            SUM(CASE WHEN status = 'valid' THEN 1 ELSE 0 END) as valids,
-            SUM(CASE WHEN status = 'bad' THEN 1 ELSE 0 END) as bads,
-            SUM(CASE WHEN status = 'mixed' THEN 1 ELSE 0 END) as mixeds,
-            SUM(CASE WHEN status = 'research' THEN 1 ELSE 0 END) as researchs,
-            SUM(CASE WHEN status IS NULL THEN 1 ELSE 0 END) as nulls
-        FROM files
-        WHERE project_id = %s AND is_dirty = %s
-        GROUP BY path
-    """, (project_id, is_dirty))
+    # Exclude quarantine paths for dirty files
+    if is_dirty:
+        cursor.execute("""
+            SELECT
+                path,
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'valid' THEN 1 ELSE 0 END) as valids,
+                SUM(CASE WHEN status = 'bad' THEN 1 ELSE 0 END) as bads,
+                SUM(CASE WHEN status = 'mixed' THEN 1 ELSE 0 END) as mixeds,
+                SUM(CASE WHEN status = 'research' THEN 1 ELSE 0 END) as researchs,
+                SUM(CASE WHEN status IS NULL THEN 1 ELSE 0 END) as nulls
+            FROM files
+            WHERE project_id = %s AND is_dirty = %s
+            AND path != 'quarantine' AND path NOT LIKE 'quarantine/%%'
+            GROUP BY path
+        """, (project_id, is_dirty))
+    else:
+        cursor.execute("""
+            SELECT
+                path,
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'valid' THEN 1 ELSE 0 END) as valids,
+                SUM(CASE WHEN status = 'bad' THEN 1 ELSE 0 END) as bads,
+                SUM(CASE WHEN status = 'mixed' THEN 1 ELSE 0 END) as mixeds,
+                SUM(CASE WHEN status = 'research' THEN 1 ELSE 0 END) as researchs,
+                SUM(CASE WHEN status IS NULL THEN 1 ELSE 0 END) as nulls
+            FROM files
+            WHERE project_id = %s AND is_dirty = %s
+            GROUP BY path
+        """, (project_id, is_dirty))
     path_counts = {row["path"]: row for row in cursor.fetchall()}
 
     if not path_counts:
