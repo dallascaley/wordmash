@@ -1451,6 +1451,11 @@ def populate_branches_for_dirty_type(cursor, conn, project_id: int, is_dirty: in
                     is_root = 0
                     break
 
+        # Calculate homogeneous: true if only one category has a positive value
+        category_values = [counts['valids'], counts['bads'], counts['mixeds'], counts['researchs'], counts['nulls']]
+        positive_categories = sum(1 for v in category_values if v > 0)
+        homogeneous = 1 if positive_categories <= 1 else 0
+
         branches_data.append((
             project_id,
             is_dirty,
@@ -1462,14 +1467,15 @@ def populate_branches_for_dirty_type(cursor, conn, project_id: int, is_dirty: in
             counts['mixeds'],
             counts['researchs'],
             counts['nulls'],
-            is_root
+            is_root,
+            homogeneous
         ))
 
     # Batch insert branches
     if branches_data:
         cursor.executemany("""
-            INSERT INTO branches (project_id, is_dirty, path, sub_folders, files, valids, bads, mixeds, researchs, nulls, is_root)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO branches (project_id, is_dirty, path, sub_folders, files, valids, bads, mixeds, researchs, nulls, is_root, homogeneous)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, branches_data)
         conn.commit()
 
