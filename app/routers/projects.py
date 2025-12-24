@@ -1476,6 +1476,76 @@ def populate_branches_for_dirty_type(cursor, conn, project_id: int, is_dirty: in
     return len(branches_data)
 
 
+def has_multiple_categories(row):
+    """Check if a branch has more than one category with positive values."""
+    categories = [row['valids'], row['bads'], row['mixeds'], row['researchs'], row['nulls']]
+    positive_count = sum(1 for c in categories if c and c > 0)
+    return positive_count > 1
+
+
+def expand_roots(cursor, conn, project_id: int):
+    """
+    Recursively expand is_root=true deeper into the tree.
+    For branches where is_root=true but they have multiple categories with positive values,
+    mark their direct children as is_root=true as well.
+    Keep going until each is_root branch has only one category with a positive value.
+    """
+    while True:
+        # Find is_root branches with multiple positive categories
+        cursor.execute("""
+            SELECT id, path, is_dirty, valids, bads, mixeds, researchs, nulls
+            FROM branches
+            WHERE project_id = %s AND is_root = 1
+        """, (project_id,))
+        root_branches = cursor.fetchall()
+
+        # Filter to those with multiple categories
+        mixed_roots = [r for r in root_branches if has_multiple_categories(r)]
+
+        if not mixed_roots:
+            break  # No more to expand
+
+        expanded_any = False
+        for root in mixed_roots:
+            root_path = root['path']
+            is_dirty = root['is_dirty']
+
+            # Find direct children (one level deeper)
+            if root_path == '':
+                # Root level: children are paths with no '/'
+                cursor.execute("""
+                    SELECT id, path FROM branches
+                    WHERE project_id = %s AND is_dirty = %s
+                    AND path != '' AND path NOT LIKE '%%/%%'
+                    AND is_root = 0
+                """, (project_id, is_dirty))
+            else:
+                # Find paths that start with root_path/ and have exactly one more component
+                prefix = root_path + '/'
+                cursor.execute("""
+                    SELECT id, path FROM branches
+                    WHERE project_id = %s AND is_dirty = %s
+                    AND path LIKE %s
+                    AND path NOT LIKE %s
+                    AND is_root = 0
+                """, (project_id, is_dirty, prefix + '%', prefix + '%/%'))
+
+            children = cursor.fetchall()
+
+            if children:
+                # Mark children as is_root=true
+                child_ids = [c['id'] for c in children]
+                cursor.execute(
+                    f"UPDATE branches SET is_root = 1 WHERE id IN ({','.join(['%s'] * len(child_ids))})",
+                    child_ids
+                )
+                conn.commit()
+                expanded_any = True
+
+        if not expanded_any:
+            break  # No children found to expand
+
+
 def populate_branches(project_id: int):
     """
     Populate the branches table with aggregated counts for each unique path.
@@ -1487,6 +1557,9 @@ def populate_branches(project_id: int):
 
     Uses an efficient single-query approach to get all file counts,
     then aggregates in Python for parent folders.
+
+    After initial population, recursively expands is_root deeper into the tree
+    until each root branch has only one category with a positive value.
     """
     conn = get_conn()
     cursor = conn.cursor()
@@ -1499,6 +1572,9 @@ def populate_branches(project_id: int):
         # Populate branches for both dirty and clean files
         dirty_count = populate_branches_for_dirty_type(cursor, conn, project_id, 1)
         clean_count = populate_branches_for_dirty_type(cursor, conn, project_id, 0)
+
+        # Expand is_root deeper for branches with multiple categories
+        expand_roots(cursor, conn, project_id)
 
         return dirty_count + clean_count
 
